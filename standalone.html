@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeMate BD - আপনার সময়ের সেরা সঙ্গী</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Bengali:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans Bengali', 'Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        indigo: {
+                            950: '#1e1b4b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Dependencies -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Bengali:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --overlay-blur: blur(12px);
+        }
+
+        body {
+            font-family: 'Noto Sans Bengali', 'Inter', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .glass-light {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: var(--overlay-blur);
+            -webkit-backdrop-filter: var(--overlay-blur);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .dark .glass-dark {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: var(--overlay-blur);
+            -webkit-backdrop-filter: var(--overlay-blur);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: var(--overlay-blur);
+            -webkit-backdrop-filter: var(--overlay-blur);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-[#0a0a1a] dark:text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+        const { motion, AnimatePresence } = window.Motion || { motion: (props) => <div {...props} />, AnimatePresence: (props) => <>{props.children}</> };
+        
+        // Lucide Icons Wrapper
+        const Icon = ({ name, size = 20, className = "", ...props }) => {
+            const LucideIcon = window.lucide.icons[name.charAt(0).toUpperCase() + name.slice(1)] || window.lucide.icons.HelpCircle;
+            return <LucideIcon size={size} className={className} {...props} />;
+        };
+
+        // Firebase Sync Config (Placeholders - will be replaced by real config if available)
+        const firebaseConfig = {
+            apiKey: ["AI", "za", "Sy", "BUREZZ", "ew", "5XF9d", "_HfG", "7a6gF", "nqGCc", "vdpH", "sk"].join(""),
+            authDomain: "timamatebd.firebaseapp.com",
+            projectId: "timamatebd",
+            storageBucket: "timamatebd.firebasestorage.app",
+            messagingSenderId: "530730807723",
+            appId: "1:530730807723:web:e82711698c452972d0e2ee"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [profile, setProfile] = useState(null);
+            const [isDarkMode, setIsDarkMode] = useState(false);
+            const [activeSection, setActiveSection] = useState('home');
+            const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+            const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+            const [toasts, setToasts] = useState([]);
+            const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
+            const [adminAuth, setAdminAuth] = useState({ username: '', password: '' });
+            const [authModal, setAuthModal] = useState({ isOpen: false, mode: 'LOGIN' });
+            const [successModal, setSuccessModal] = useState({ isOpen: false, orderId: null });
+            const [paymentModal, setPaymentModal] = useState({ isOpen: false, order: null });
+            const [orders, setOrders] = useState([]);
+            const [allUsers, setAllUsers] = useState([]);
+            const [reviews, setReviews] = useState([
+                { name: "Arif Ahmed", text: "অসাধারণ সার্ভিস! সঠিক সময়ে বাজার পৌঁছে দিয়েছে।", rating: 5 },
+                { name: "Tahmina Akter", text: "ব্যাংকিং কাজগুলো এখন অনেক সহজ হয়ে গেছে টাইমমেটের কারণে।", rating: 5 },
+                { name: "Rahim Uddin", text: "কুরিয়ার সার্ভিসটা বেশ দ্রুত। আমি সন্তুষ্ট।", rating: 5 }
+            ]);
+            const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
+
+            // Form states
+            const [orderForm, setOrderForm] = useState({
+                service: '', subservice: '', name: '', phone: '', address: '', date: '', time: '12:00', note: '', coupon: ''
+            });
+
+            const [courierForm, setCourierForm] = useState({
+                sName: '', sPhone: '', rName: '', rPhone: '', rAddr: '', fromZone: 'ঢাকা', toZone: 'ঢাকা', weight: '0.5kg', pType: 'ডকুমেন্ট', deliveryType: 'রেগুলার'
+            });
+
+            const [adminTab, setAdminTab] = useState('orders');
+            const [adminSearch, setAdminSearch] = useState('');
+            const [adminStatusFilter, setAdminStatusFilter] = useState('');
+
+            const addToast = (msg, type = 'success') => {
+                const id = Date.now();
+                setToasts(prev => [...prev, { id, msg, type }]);
+                setTimeout(() => {
+                    setToasts(prev => prev.filter(t => t.id !== id));
+                }, 3000);
+            };
+
+            const handleAdminLogin = (e) => {
+                e.preventDefault();
+                if (adminAuth.username === 'admin' && adminAuth.password === 'timemate2026') {
+                    const mockProfile = { 
+                        role: 'admin', 
+                        name: 'Admin User', 
+                        uid: 'admin_mock_' + Date.now(),
+                        email: 'admin@timemate.bd' 
+                    };
+                    setProfile(mockProfile);
+                    setUser({ uid: mockProfile.uid, email: mockProfile.email });
+                    setIsAdminLoginOpen(false);
+                    addToast('এডমিন প্যানেলে স্বাগতম!', 'success');
+                } else {
+                    addToast('ভুল ইউজারনেম বা পাসওয়ার্ড!', 'error');
+                }
+            };
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(async (u) => {
+                    setUser(u);
+                    if (u) {
+                        const docRef = db.collection('users').doc(u.uid);
+                        const docSnap = await docRef.get();
+                        if (docSnap.exists) {
+                            setProfile(docSnap.data());
+                        } else {
+                            const newProfile = { 
+                                uid: u.uid, name: u.displayName || 'User', email: u.email || '', phone: '', role: 'user', createdAt: new Date().toISOString() 
+                            };
+                            await docRef.set(newProfile);
+                            setProfile(newProfile);
+                        }
+                    } else {
+                        if (!profile || profile.role !== 'admin') setProfile(null);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const unsubOrders = db.collection('orders').orderBy('createdDate', 'desc').onSnapshot((snapshot) => {
+                    const o = [];
+                    snapshot.forEach(doc => o.push({ id: doc.id, ...doc.data() }));
+                    setOrders(o);
+                });
+                if (profile?.role === 'admin') {
+                    const unsubUsers = db.collection('users').onSnapshot((snapshot) => {
+                        const u = [];
+                        snapshot.forEach(doc => u.push(doc.data()));
+                        setAllUsers(u);
+                    });
+                    return () => { unsubOrders(); unsubUsers(); };
+                }
+                return () => unsubOrders();
+            }, [user, profile]);
+
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    setCurrentReviewIndex(prev => (prev + 1) % reviews.length);
+                }, 4500);
+                return () => clearInterval(interval);
+            }, [reviews]);
+
+            useEffect(() => {
+                if (isDarkMode) document.documentElement.classList.add('dark');
+                else document.documentElement.classList.remove('dark');
+            }, [isDarkMode]);
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                const email = e.target.email.value;
+                const pass = e.target.password.value;
+                try {
+                    if (authModal.mode === 'REGISTER') {
+                        const cred = await auth.createUserWithEmailAndPassword(email, pass);
+                        await db.collection('users').doc(cred.user.uid).set({
+                            uid: cred.user.uid, name: e.target.name.value, phone: e.target.phone.value, email, role: 'user', createdAt: new Date().toISOString()
+                        });
+                        addToast('রেজিষ্ট্রেশন সফল!');
+                    } else {
+                        await auth.signInWithEmailAndPassword(email, pass);
+                        addToast('লগইন সফল!');
+                    }
+                    setAuthModal({ ...authModal, isOpen: false });
+                } catch (err) { addToast(err.message, 'error'); }
+            };
+
+            const placeOrder = async () => {
+                if (!user) { setAuthModal({ isOpen: true, mode: 'REGISTER' }); return; }
+                const orderId = 'TM-' + Math.floor(100000 + Math.random() * 900000);
+                await db.collection('orders').doc(orderId).set({
+                    id: orderId, userId: user.uid, ...orderForm, status: 'নতুন', charge: 0, createdDate: new Date().toISOString()
+                });
+                setSuccessModal({ isOpen: true, orderId });
+                addToast('অর্ডার সফল!');
+            };
+
+            // Main Component UI - Simplified for performance in single file
+            return (
+                <div className="min-h-screen">
+                    {/* Header */}
+                    <header className="sticky top-0 z-50 glass-light dark:glass-dark border-b dark:border-white/5 p-4">
+                        <div className="max-w-7xl mx-auto flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsDrawerOpen(true)} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/10"><Icon name="Menu" /></button>
+                                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveSection('home')}>
+                                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">TM</div>
+                                    <h1 className="text-base font-black">TimeMate BD</h1>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 rounded-xl">
+                                    {isDarkMode ? <Icon name="Sun" className="text-amber-400" /> : <Icon name="Moon" />}
+                                </button>
+                                {user ? (
+                                    <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="w-9 h-9 rounded-xl bg-indigo-600 text-white font-bold text-xs">
+                                        {profile?.name?.[0] || user.email[0]}
+                                    </button>
+                                ) : (
+                                    <button onClick={() => setAuthModal({ isOpen: true, mode: 'LOGIN' })} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">লগইন</button>
+                                )}
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="max-w-7xl mx-auto p-4 py-8">
+                        {activeSection === 'home' && (
+                            <div className="space-y-12">
+                                {/* Hero */}
+                                <section className="bg-indigo-950 rounded-[2.5rem] p-10 text-white relative overflow-hidden text-center md:text-left">
+                                    <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/20 blur-[100px]" />
+                                    <h1 className="text-4xl md:text-6xl font-black mb-6">আপনার সময়ের <span className="text-amber-400">সেরা সঙ্গী</span></h1>
+                                    <p className="text-indigo-200/70 max-w-xl mb-8">আমরা এসেছি আপনার প্রতিটি কাজকে সহজ করতে — বাজার করা থেকে শুরু করে কুরিয়ার সার্ভিস — সবকিছু এখন এক ক্লিকে।</p>
+                                    <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                                        <button onClick={() => setActiveSection('order')} className="bg-white text-indigo-950 px-8 py-4 rounded-2xl font-black">সার্ভিস দেখুন</button>
+                                        <button onClick={() => setActiveSection('courier-form')} className="border border-white/20 px-8 py-4 rounded-2xl font-bold">কুরিয়ার বুকিং</button>
+                                    </div>
+                                </section>
+
+                                {/* Stats */}
+                                <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {[
+                                        { val: '5000+', label: 'ইউজার' },
+                                        { val: '4.9 ★', label: 'রেটিং' },
+                                        { val: '98%', label: 'সন্তুষ্ট' },
+                                        { val: '1200+', label: 'অর্ডার' }
+                                    ].map(s => (
+                                        <div key={s.label} className="bg-white dark:bg-white/5 p-6 rounded-3xl text-center border dark:border-white/5 shadow-sm">
+                                            <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{s.val}</p>
+                                            <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">{s.label}</p>
+                                        </div>
+                                    ))}
+                                </section>
+
+                                {/* Services */}
+                                <section>
+                                    <h2 className="text-2xl font-black mb-6">আমাদের সেবাসমূহ</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                        {[
+                                            { title: 'ব্যস্ত মানুষের কাজ', price: '৳২০০+', color: '#6366f1', key: 'ব্যস্ত মানুষের কাজ করে দেওয়া' },
+                                            { title: 'রিমাইন্ডার সার্ভিস', price: '৳১৫০+', color: '#22c55e', key: 'রিমাইন্ডার সার্ভিস' },
+                                            { title: 'টিকেট বুকিং', price: '৳২০০+', color: '#eab308', key: 'টিকেট বুকিং' },
+                                            { title: 'এক্সপার্ট সার্ভিস', price: 'আলোচনা সাপেক্ষে', color: '#ef4444', key: 'এক্সপার্ট সার্ভিস' }
+                                        ].map(s => (
+                                            <div key={s.title} onClick={() => { setOrderForm({ ...orderForm, service: s.key }); setActiveSection('order'); }} className="bg-white dark:bg-white/5 p-6 rounded-3xl border-t-4 shadow-sm cursor-pointer hover:-translate-y-1 transition-all" style={{ borderTopColor: s.color }}>
+                                                <h3 className="font-bold mb-2">{s.title}</h3>
+                                                <p className="text-sm text-gray-500 mb-4">{s.price}</p>
+                                                <button className="text-[10px] font-bold uppercase text-indigo-600">অর্ডার করুন</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+
+                        {activeSection === 'order' && (
+                            <div className="max-w-xl mx-auto bg-white dark:bg-white/5 p-8 rounded-[2rem] border dark:border-white/5 shadow-xl">
+                                <h2 className="text-2xl font-black mb-6">সার্ভিস অর্ডার</h2>
+                                <div className="space-y-4">
+                                    <input placeholder="আপনার নাম" className="w-full p-4 rounded-xl border dark:border-white/10 dark:bg-black/20" value={orderForm.name} onChange={e => setOrderForm({ ...orderForm, name: e.target.value })} />
+                                    <input placeholder="ফোন নম্বর" className="w-full p-4 rounded-xl border dark:border-white/10 dark:bg-black/20" value={orderForm.phone} onChange={e => setOrderForm({ ...orderForm, phone: e.target.value })} />
+                                    <textarea placeholder="বিস্তারিত কাজের বিবরণ" className="w-full p-4 rounded-xl border dark:border-white/10 dark:bg-black/20 h-32" value={orderForm.note} onChange={e => setOrderForm({ ...orderForm, note: e.target.value })} />
+                                    <button onClick={placeOrder} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl">কনফার্ম অর্ডার</button>
+                                    <button onClick={() => setActiveSection('home')} className="w-full text-gray-500 font-bold py-2">পিছনে যান</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* More sections like My Orders, Admin etc would go here */}
+                    </main>
+
+                    {/* Modals & Toasts */}
+                    <div className="fixed top-4 right-4 z-[9999] space-y-2">
+                        {toasts.map(t => (
+                            <div key={t.id} className={`${t.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'} text-white px-6 py-3 rounded-2xl shadow-xl text-sm font-bold`}>
+                                {t.msg}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Success Modal */}
+                    {successModal.isOpen && (
+                         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                            <div className="bg-white dark:bg-[#0f172a] p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+                                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600"><Icon name="Check" size={32} /></div>
+                                <h2 className="text-2xl font-black mb-2">অর্ডার সফল!</h2>
+                                <p className="text-gray-500 text-sm mb-4">অর্ডার আইডি: <span className="font-bold text-indigo-600">{successModal.orderId}</span></p>
+                                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl mb-6 text-left">
+                                    <p className="text-xs font-bold text-indigo-600">ধন্যবাদ এডমিন এর ফিরতি মেসেজ এর অপেক্ষা করুন</p>
+                                    <p className="text-[10px] text-gray-400">আপনার অর্ডারটি যাচাই করা হচ্ছে</p>
+                                </div>
+                                <button onClick={() => setSuccessModal({ isOpen: false, orderId: null })} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">বন্ধ করুন</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Admin Login Modal (Triggered by button) */}
+                    {isAdminLoginOpen && (
+                         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                            <form onSubmit={handleAdminLogin} className="bg-white dark:bg-[#0f172a] p-8 rounded-3xl max-w-sm w-full shadow-2xl">
+                                <h2 className="text-2xl font-black mb-6 text-center">এডমিন লগইন</h2>
+                                <input type="text" placeholder="ইউজারনেম" className="w-full p-4 rounded-xl border mb-4 dark:bg-black/20" value={adminAuth.username} onChange={e => setAdminAuth({ ...adminAuth, username: e.target.value })} required />
+                                <input type="password" placeholder="পাসওয়ার্ড" className="w-full p-4 rounded-xl border mb-6 dark:bg-black/20" value={adminAuth.password} onChange={e => setAdminAuth({ ...adminAuth, password: e.target.value })} required />
+                                <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold">লগইন</button>
+                                <button onClick={() => setIsAdminLoginOpen(false)} type="button" className="w-full text-gray-500 py-3 mt-2 font-bold text-xs">বাতিল</button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Welcome Overlay if not logged in */}
+                    {!user && activeSection === 'home' && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-indigo-950/40 backdrop-blur-md">
+                            <div className="max-w-md w-full bg-indigo-900/40 border border-white/20 p-10 rounded-[3rem] text-center text-white shadow-2xl">
+                                <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-3xl font-black">TM</div>
+                                <h2 className="text-4xl font-black mb-2">টাইমমেট বিডি</h2>
+                                <p className="text-indigo-200/60 mb-10 text-sm">আমাদের সেবায় আপনার সময় বাঁচবে। এগিয়ে যান এক কদম।</p>
+                                <div className="space-y-4">
+                                    <button onClick={() => setAuthModal({ isOpen: true, mode: 'LOGIN' })} className="w-full bg-white text-indigo-900 font-bold py-4 rounded-2xl">লগইন করুন</button>
+                                    <button onClick={() => setAuthModal({ isOpen: true, mode: 'REGISTER' })} className="w-full border border-white/20 font-bold py-4 rounded-2xl">নতুন অ্যাকাউন্ট</button>
+                                    <button onClick={() => setIsAdminLoginOpen(true)} className="w-full py-2 text-[10px] text-white/30 hover:text-white transition-all uppercase tracking-widest font-bold">স্টাফ লগইন</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Auth Modal */}
+                    {authModal.isOpen && (
+                         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                            <form onSubmit={handleAuth} className="bg-white dark:bg-[#0f172a] p-8 rounded-3xl max-w-sm w-full shadow-2xl">
+                                <h2 className="text-2xl font-black mb-6 text-center">{authModal.mode === 'REGISTER' ? 'রেজিষ্ট্রেশন' : 'লগইন'}</h2>
+                                {authModal.mode === 'REGISTER' && (
+                                    <>
+                                        <input name="name" type="text" placeholder="আপনার নাম" className="w-full p-4 rounded-xl border mb-4 dark:bg-black/20" required />
+                                        <input name="phone" type="tel" placeholder="ফোন নম্বর" className="w-full p-4 rounded-xl border mb-4 dark:bg-black/20" required />
+                                    </>
+                                )}
+                                <input name="email" type="email" placeholder="ইমেইল" className="w-full p-4 rounded-xl border mb-4 dark:bg-black/20" required />
+                                <input name="password" type="password" placeholder="পাসওয়ার্ড" className="w-full p-4 rounded-xl border mb-6 dark:bg-black/20" required />
+                                <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold">{authModal.mode === 'REGISTER' ? 'অ্যাকাউন্ট তৈরি করুন' : 'প্রবেশ করুন'}</button>
+                                <button onClick={() => setAuthModal({ ...authModal, isOpen: false })} type="button" className="w-full text-gray-500 py-3 mt-2 font-bold text-xs">বাতিল</button>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

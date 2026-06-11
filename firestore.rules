@@ -1,0 +1,222 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.uid == '9xG6zcPwytNEOEohAVupu7DLMyT2' ||
+        ('email' in request.auth.token && (request.auth.token.email == 'enamulislam1753@gmail.com' || request.auth.token.email == 'Enamulislam1753@gmail.com')) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         'role' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         'email' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'enamulislam1753@gmail.com' || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'Enamulislam1753@gmail.com'))
+      );
+    }
+
+    function isBanned() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        'role' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'banned';
+    }
+
+    function isStaff() {
+      return isSignedIn() && (
+        request.auth.uid == '9xG6zcPwytNEOEohAVupu7DLMyT2' ||
+        ('email' in request.auth.token && (request.auth.token.email == 'enamulislam1753@gmail.com' || request.auth.token.email == 'Enamulislam1753@gmail.com')) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         'role' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'staff']) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         'email' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'enamulislam1753@gmail.com' || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email == 'Enamulislam1753@gmail.com'))
+      );
+    }
+
+    function isEmployee() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        'role' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['employee', 'staff']
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'role', 'name', 'email']) &&
+             (data.uid == request.auth.uid || isAdmin() || isStaff()) &&
+             data.role in ['user', 'admin', 'staff', 'employee'] &&
+             data.name is string && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 100;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'status', 'timestamp']) &&
+             isValidId(data.id) &&
+             data.userId == request.auth.uid &&
+             data.type in ['Regular', 'Courier'] &&
+             data.status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'প্রক্রিয়াধীন', 'সম্পন্ন', 'বাতিল', 'স্প্যাম'] &&
+             data.timestamp is string;
+    }
+
+    function isValidReview(data) {
+      return data.comment is string && 
+             data.comment.size() <= 1000 &&
+             data.rating is number &&
+             data.rating >= 1 && 
+             data.rating <= 5;
+    }
+
+    function isValidTicket(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'phone', 'type', 'ticketNo', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.name is string &&
+             data.phone is string &&
+             data.type in ['monthly', 'weekly'] &&
+             data.ticketNo is string;
+    }
+
+    function isValidCoinRequest(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'email', 'phone', 'paymentMethod', 'coins', 'amount', 'status', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.coins is number && data.coins > 0 &&
+             data.amount is number && data.amount > 0 &&
+             data.status in ['Pending', 'Approved', 'Rejected'];
+    }
+
+    // Rules
+    match /notifications/{notificationId} {
+      allow create: if isSignedIn() && !isBanned();
+      allow read, update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin() || isStaff());
+    }
+
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin() || isStaff() || isEmployee();
+      allow list: if isSignedIn();
+      allow create: if (isSignedIn() && isValidUser(incoming()) && userId == request.auth.uid) || isAdmin() || isStaff();
+      allow update: if isAdmin() || isStaff() || (
+        isOwner(userId) && !isBanned() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fullName', 'phone', 'email', 'role', 'address', 'birthDate', 'customBadge', 'timePoints', 'lastBirthClaimYear', 'lastClaimDate', 'photoURL', 'lastMysteryBoxClaim', 'referralCode', 'referredBy', 'referredByCode', 'mobileVerified', 'lastSpinDate']) &&
+        (incoming().role == existing().role)
+      ) || (
+        isSignedIn() && !isBanned() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['timePoints']) &&
+        incoming().timePoints > existing().timePoints
+      );
+      allow delete: if isAdmin() || isStaff();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff() || isEmployee());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff() || isEmployee());
+      allow create: if isSignedIn() && !isBanned() && isValidOrder(incoming()) && orderId == incoming().id;
+      allow update: if isSignedIn() && !isBanned() && (
+        isStaff() || isEmployee() ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['reviewed']) && incoming().reviewed == true) ||
+        (isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
+        (
+          isOwner(existing().userId) && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
+            incoming().status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'বাতিল']
+          )
+        )
+      );
+      allow delete: if isAdmin() || isStaff();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidReview(incoming());
+      allow update, delete: if isAdmin() || isStaff();
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin() || isStaff());
+      allow create: if isSignedIn() && !isBanned();
+      allow update, delete: if isAdmin() || isStaff();
+    }
+
+    match /coin_requests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || isAdmin() || isStaff());
+      allow create: if isSignedIn() && !isBanned();
+      allow update: if isAdmin() || isStaff();
+      allow delete: if isAdmin() || isStaff();
+    }
+
+    match /lotteries/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn() && !isBanned();
+      allow update: if isSignedIn() && !isBanned();
+      allow delete: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if isAdmin() || isStaff();
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isAdmin() || isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isSignedIn() && !isBanned();
+      allow update: if isAdmin() || isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid);
+      allow delete: if isAdmin() || isStaff();
+    }
+
+    match /orders/{orderId}/chats/{messageId} {
+      allow read, create: if isSignedIn() && !isBanned() && (
+        (exists(/databases/$(database)/documents/orders/$(orderId)) && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/orders/$(orderId)) && 'assignedEmployeeId' in get(/databases/$(database)/documents/orders/$(orderId)).data && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedEmployeeId == request.auth.uid) ||
+        isAdmin() ||
+        isStaff()
+      );
+      allow update, delete: if isAdmin() || isStaff();
+    }
+  }
+}

@@ -1,0 +1,234 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "staff", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "address": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "customBadge": { "type": "string" },
+        "timePoints": { "type": "number" },
+        "lastBirthClaimYear": { "type": "number" },
+        "lastClaimDate": { "type": "number" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["uid", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Service or Courier order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["Regular", "Courier"] },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "service": { "type": "string" },
+        "subservice": { "type": "string" },
+        "orderDate": { "type": "string" },
+        "time": { "type": "string" },
+        "note": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "payFrom": { "type": "string" },
+        "txnId": { "type": "string" },
+        "discountPercent": { "type": "number" },
+        "basePrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["নতুন", "মূল্য নির্ধারণ", "পেমেন্ট যাচাই", "প্রক্রিয়াধীন", "সম্পন্ন", "বাতিল"] },
+        "charge": { "type": "number" },
+        "createdDate": { "type": "string", "format": "date-time" },
+        "sName": { "type": "string", "description": "Courier Sender Name" },
+        "sPhone": { "type": "string", "description": "Courier Sender Phone" },
+        "rName": { "type": "string", "description": "Courier Receiver Name" },
+        "rPhone": { "type": "string", "description": "Courier Receiver Phone" },
+        "rAddr": { "type": "string", "description": "Courier Receiver Address" },
+        "fromZone": { "type": "string" },
+        "toZone": { "type": "string" },
+        "weight": { "type": "string" },
+        "pType": { "type": "string" },
+        "deliveryType": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "status", "createdDate"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer review",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "text": { "type": "string" },
+        "rating": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "text", "rating", "date"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System or user notification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["system", "order", "promo"] },
+        "read": { "type": "boolean" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message", "timestamp"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Discount coupon",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "discount": { "type": "number" },
+        "active": { "type": "boolean" },
+        "expiryDate": { "type": "string" },
+        "isMysteryBox": { "type": "boolean" }
+      },
+      "required": ["code", "discount", "active"]
+    },
+    "Ticket": {
+      "title": "Ticket",
+      "description": "Lottery ticket registered by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "type": { "type": "string", "enum": ["monthly", "weekly"] },
+        "ticketNo": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "email", "phone", "type", "ticketNo", "createdAt"]
+    },
+    "CoinRequest": {
+      "title": "CoinRequest",
+      "description": "A user's request to sell Time Coins for cash",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "coins": { "type": "number" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "userName", "email", "phone", "paymentMethod", "coins", "amount", "status", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Announcement bar item shown to users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string", "enum": ["lottery", "birthday", "winner", "general"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "text", "type", "active", "createdAt"]
+    },
+    "SystemReward": {
+      "title": "SystemReward",
+      "description": "Rewards configuration for Birthdays and Mystery Box",
+      "type": "object",
+      "properties": {
+        "isMysteryBoxEnabled": { "type": "boolean" },
+        "isBirthdayGiftEnabled": { "type": "boolean" },
+        "birthdayGiftPoints": { "type": "number" }
+      },
+      "required": ["isMysteryBoxEnabled", "isBirthdayGiftEnabled", "birthdayGiftPoints"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Dynamically added service category",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "desc": { "type": "string" },
+        "subs": { "type": "array" },
+        "price": { "type": "string" },
+        "color": { "type": "string" },
+        "serviceKey": { "type": "string" }
+      },
+      "required": ["title", "desc"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Registered employee/provider",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "nidNumber": { "type": "string" },
+        "nidPhoto": { "type": "string" },
+        "photo": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "phone", "nidNumber"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Profiles for authenticated users"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "All orders in the system"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "User reviews"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Notifications for users"
+    },
+    "/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Discount coupons"
+    },
+    "/tickets/{ticketId}": {
+      "schema": "Ticket",
+      "description": "Lottery tickets purchased"
+    },
+    "/coin_requests/{requestId}": {
+      "schema": "CoinRequest",
+      "description": "Coin cash-out requests"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Top advertisement/announcement bar items"
+    },
+    "/system/{docId}": {
+      "schema": "SystemReward",
+      "description": "System-level configs like rewards"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Dynamic service categories and items"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Employee applications and registry"
+    }
+  }
+}

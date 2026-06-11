@@ -1,0 +1,322 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Bengali:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-bengali: "Noto Sans Bengali", sans-serif;
+  --font-inter: "Inter", sans-serif;
+
+  --color-primary-50: #f0f7ff;
+  --color-primary-100: #e0effe;
+  --color-primary-200: #b9ddfe;
+  --color-primary-300: #7cbdfe;
+  --color-primary-400: #339efc;
+  --color-primary-500: #0a4c80;
+  --color-primary-600: #00457c;
+  --color-primary-700: #003a68;
+  --color-primary-800: #002d51;
+  --color-primary-900: #00213b;
+
+  --color-indigo-50: #f0f7ff;
+  --color-indigo-100: #e0effe;
+  --color-indigo-200: #b9ddfe;
+  --color-indigo-300: #7cbdfe;
+  --color-indigo-400: #339efc;
+  --color-indigo-500: #0a4c80;
+  --color-indigo-600: #00457c;
+  --color-indigo-700: #003a68;
+  --color-indigo-800: #002d51;
+  --color-indigo-900: #00213b;
+  --color-indigo-950: #001222;
+
+  --color-purple-50: #f8fafc;
+  --color-purple-100: #f1f5f9;
+  --color-purple-200: #e2e8f0;
+  --color-purple-300: #cbd5e1;
+  --color-purple-400: #94a3b8;
+  --color-purple-500: #64748b;
+  --color-purple-600: #475569;
+  --color-purple-700: #334155;
+  --color-purple-800: #1e293b;
+  --color-purple-900: #0f172a;
+  --color-purple-950: #020617;
+
+  --color-mate-50: #f0fdf4;
+  --color-mate-100: #dcfce7;
+  --color-mate-200: #bbf7d0;
+  --color-mate-300: #86efac;
+  --color-mate-400: #4ade80;
+  --color-mate-500: #22c55e;
+  --color-mate-600: #16a34a;
+  --color-mate-700: #15803d;
+
+  --color-gold-400: #fbbf24;
+  --color-gold-500: #f59e0b;
+  --color-gold-600: #d97706;
+
+  --overlay-blur: blur(16px);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 10px 40px -10px rgba(79, 70, 229, 0.08);
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.4);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+body {
+  font-family: var(--font-bengali), var(--font-inter), sans-serif;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   GLOBAL DARK MODE CONTRAST OPTIMIZATIONS (READABILITY BOOSTER)
+   ========================================================================== */
+
+/* Automatically apply rich pitch-black theme to body and root HTML wrapper when dark mode is enabled */
+.dark body,
+body.dark,
+.dark,
+.dark .min-h-screen,
+.dark main {
+  background-color: #030308 !important;
+  color: #f8fafc !important;
+}
+
+/* Force light backgrounds or custom container grids to elegant black/carbon container values */
+.dark .bg-white,
+.dark [class*="bg-white/"] {
+  background-color: #090912 !important; /* Premium dark black carbon card */
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .bg-slate-50,
+.dark .bg-gray-50,
+.dark .bg-zinc-50,
+.dark [class*="bg-slate-50/"],
+.dark [class*="bg-gray-50/"] {
+  background-color: #030308 !important; /* Base matching pitch-black */
+}
+
+/* Transform soft light elements (like border fill or tabs) into elegant secondary charcoal */
+.dark .bg-slate-100,
+.dark .bg-gray-100,
+.dark .bg-zinc-100,
+.dark [class*="bg-slate-100/"],
+.dark [class*="bg-gray-100/"] {
+  background-color: #121324 !important; /* Soft carbon fill */
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.dark .bg-gray-200,
+.dark .bg-slate-200,
+.dark [class*="bg-gray-200/"] {
+  background-color: #1e293b !important;
+}
+
+/* Transform any bright status or colored light boxes (indigo-50, emerald-50, red-50, amber-50) */
+.dark .bg-indigo-50,
+.dark .bg-purple-50,
+.dark .bg-emerald-50,
+.dark .bg-amber-50,
+.dark .bg-red-50,
+.dark [class*="bg-indigo-50/"],
+.dark [class*="bg-purple-50/"],
+.dark [class*="bg-emerald-50/"],
+.dark [class*="bg-amber-50/"],
+.dark [class*="bg-red-50/"] {
+  background-color: #0b0f19 !important; /* Extremely dark blue-gray */
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Direct custom overrides for home page service cards & nested grid cells */
+.dark .group.cursor-pointer,
+.dark [class*="dark:bg-slate-900"],
+.dark [class*="dark:bg-slate-950"],
+.dark [class*="dark:bg-[#0b0f19]"],
+.dark [class*="dark:bg-[#020617]"] {
+  background-color: #090912 !important; /* Pure black carbon block override */
+  opacity: 1 !important;
+}
+
+.dark .group.cursor-pointer:hover {
+  background-color: #121324 !important; /* Slight lift on hover */
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+/* Overrides to make all grey subtitles / muted texts beautifully visible on dark blue bg */
+.dark .text-gray-450,
+.dark .text-gray-400,
+.dark .text-slate-400,
+.dark .text-zinc-400 {
+  color: #cbd5e1 !important; /* Significantly raised for visible contrast */
+}
+
+.dark .text-gray-500,
+.dark .text-slate-500,
+.dark .text-zinc-500 {
+  color: #e2e8f0 !important; /* High readability secondary labels */
+}
+
+.dark .text-gray-600,
+.dark .text-slate-600,
+.dark .text-zinc-650 {
+  color: #f1f5f9 !important; /* Almost pure white for standard body */
+}
+
+/* Maximize Contrast for all standard headings and body text colors in dark mode */
+.dark .text-gray-900,
+.dark .text-slate-900,
+.dark .text-zinc-900,
+.dark .text-neutral-900,
+.dark .text-gray-800,
+.dark .text-slate-800,
+.dark .text-slate-750,
+.dark .text-zinc-800,
+.dark .text-gray-700,
+.dark .text-slate-700,
+.dark .text-zinc-700,
+.dark .text-black,
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #ffffff !important; /* Pristine absolute white for guaranteed legibility */
+}
+
+/* Custom inputs, selection drop-downs, and forms inside dark mode */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0a0b16 !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Base input field styling overrides for premium feels */
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  opacity: 0.8;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+/* Keep primary action and accent colors perfectly bright in dark mode */
+.dark .text-indigo-600 {
+  color: #a5b4fc !important; /* Soft indigo-300 */
+}
+
+.dark .text-purple-600 {
+  color: #d8b4fe !important; /* Soft purple-300 */
+}
+
+.dark .text-indigo-750,
+.dark .text-indigo-700 {
+  color: #c7d2fe !important; /* Light indigo-250 */
+}
+
+.dark .text-purple-750,
+.dark .text-purple-700 {
+  color: #f5d0fe !important; /* Light purple-250 */
+}
+
+/* Interactive hover overrides for dark mode buttons */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Contrast enhancement for small subtexts & captions */
+.dark .text-\[10px\], 
+.dark .text-xs {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Enhance form labels in Dark mode */
+.dark label {
+  color: #cbd5e1 !important;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* Ensure glass panels remain highly readable and clean in dark mode */
+.dark .glass-light {
+  background: rgba(9, 9, 18, 0.9) !important;
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Glowing text effects for important labels/badges */
+.text-sparkle-glow {
+  text-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+}
+
+/* Custom scrollbars inside pages */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.15);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(138, 92, 246, 0.3);
+}
+
+/* Modern card hover effects */
+.hover-premium-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-premium-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 20px 40px -15px rgba(99, 102, 241, 0.15);
+}
