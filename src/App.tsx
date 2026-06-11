@@ -12,6 +12,8 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   sendPasswordResetEmail,
   sendEmailVerification,
   updatePassword,
@@ -2499,6 +2501,25 @@ export default function App() {
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
 
+    // Handle any redirect login errors (e.g. from Vercel domain issues)
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          addToast("গুগল রিডাইরেক্ট লগইন সফল হয়েছে!", "success");
+        }
+      })
+      .catch((e: any) => {
+        console.error("Redirect sign-in error:", e);
+        if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
+          addToast(
+            "আপনার Vercel বা লাইভ ডোমেনটি ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার Vercel ডোমেনটি অ্যাড করুন।",
+            "error",
+          );
+        } else {
+          addToast(`রিডাইরেক্ট লগইন ব্যর্থ হয়েছে: ${e.message}`, "error");
+        }
+      });
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
 
@@ -3007,14 +3028,27 @@ export default function App() {
       }
       setAuthModal({ ...authModal, isOpen: false });
     } catch (e: any) {
-      if (e.code === "auth/operation-not-allowed") {
-        addToast(
-          "Email/Password লগইন চালু নেই। দয়া করে Google Login ব্যবহার করুন অথবা Firebase কনসোলে এটি সচল করুন।",
-          "error",
-        );
-      } else {
-        addToast(e.message, "error");
+      let errorMessage = e.message;
+      if (e.code === "auth/operation-not-allowed" || e.message?.includes("operation-not-allowed")) {
+        errorMessage = "Email/Password লগইন পদ্ধতিটি আপনার ফায়ারবেস কনসোলে সচল (Enable) করা নেই। দয়া করে Firebase Console -> Authentication -> Sign-in method-এ গিয়ে Email/Password সচল করুন।";
+      } else if (e.code === "auth/invalid-credential" || e.message?.includes("invalid-credential")) {
+        errorMessage = "আপনার দেওয়া ইমেইল অথবা পাসওয়ার্ডটি সঠিক নয়! দয়া করে পুনরায় চেক করুন।";
+      } else if (e.code === "auth/user-not-found" || e.message?.includes("user-not-found")) {
+        errorMessage = "এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি! প্রথমে অ্যাকাউন্ট রেজিস্টার করুন।";
+      } else if (e.code === "auth/wrong-password" || e.message?.includes("wrong-password")) {
+        errorMessage = "ভুল পাসওয়ার্ড! দয়া করে সঠিক পাসওয়ার্ড দিয়ে আবার চেষ্টা করুন।";
+      } else if (e.code === "auth/email-already-in-use" || e.message?.includes("email-already-in-use")) {
+        errorMessage = "এই ইমেইলটি দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা হয়েছে! দয়া করে লগইন করুন।";
+      } else if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
+        errorMessage = "আপনার Vercel বা লাইভ ডোমেনটি (timematebd.vercel.app বা কাস্টম ডোমেন) ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার ডোমেনটি অ্যাড করুন।";
+      } else if (e.code === "auth/weak-password" || e.message?.includes("weak-password")) {
+        errorMessage = "পাসওয়ার্ডটি অত্যন্ত দুর্বল! পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।";
+      } else if (e.code === "auth/invalid-email" || e.message?.includes("invalid-email")) {
+        errorMessage = "ইমেইল ফরম্যাট সঠিক নয়! দয়া করে একটি সঠিক আসল ইমেইল প্রদান করুন।";
+      } else if (e.code === "auth/too-many-requests" || e.message?.includes("too-many-requests")) {
+        errorMessage = "অতিরিক্ত ভুল প্রচেষ্টার কারণে সাময়িকভাবে লগইন ব্লক করা হয়েছে। দয়া করে কিছুক্ষণ পর আবার চেষ্টা করুন।";
       }
+      addToast(errorMessage, "error");
     }
   };
 
@@ -3157,29 +3191,54 @@ export default function App() {
   const googleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      const cred = await signInWithPopup(auth, provider);
-      const docRef = doc(db, "users", cred.user.uid);
-      const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) {
-        const isBootstrapAdmin = await checkIsAdminSecure(
-          cred.user.email,
-          cred.user.uid,
-        );
-        const role = isBootstrapAdmin ? "admin" : "user";
-        await setDoc(docRef, {
-          uid: cred.user.uid,
-          name: cred.user.displayName || "User",
-          phone: "",
-          email: cred.user.email || "",
-          role,
-          createdAt: new Date().toISOString(),
-          timePoints: 100,
-        });
+      provider.setCustomParameters({ prompt: "select_account" });
+      
+      // If we detect inside an Android/iOS WebView or mobile, redirect is vastly superior
+      const isWebView = /wv|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isWebView) {
+        addToast("গুগল রিডাইরেক্ট লগইন শুরু হচ্ছে...", "success");
+        await signInWithRedirect(auth, provider);
+        return;
       }
-      setAuthModal({ ...authModal, isOpen: false });
-      addToast("গুগল লগইন সফল!");
-    } catch (e) {
-      addToast("গুগল লগইন ব্যর্থ হয়েছে", "error");
+
+      // Try popup login
+      try {
+        const cred = await signInWithPopup(auth, provider);
+        const docRef = doc(db, "users", cred.user.uid);
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) {
+          const isBootstrapAdmin = await checkIsAdminSecure(
+            cred.user.email,
+            cred.user.uid,
+          );
+          const role = isBootstrapAdmin ? "admin" : "user";
+          await setDoc(docRef, {
+            uid: cred.user.uid,
+            name: cred.user.displayName || "User",
+            phone: "",
+            email: cred.user.email || "",
+            role,
+            createdAt: new Date().toISOString(),
+            timePoints: 100,
+          });
+        }
+        setAuthModal({ ...authModal, isOpen: false });
+        addToast("গুগল লগইন সফল!");
+      } catch (popupErr: any) {
+        console.warn("Popup blocked or failed, falling back to redirect:", popupErr);
+        addToast("রিমোট লগইন রিডাইরেক্ট ব্যবহার করা হচ্ছে...", "success");
+        await signInWithRedirect(auth, provider);
+      }
+    } catch (e: any) {
+      console.error(e);
+      if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
+        addToast(
+          "আপনার Vercel বা লাইভ ডোমেনটি ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার Vercel ডোমেনটি অ্যাড করুন।",
+          "error",
+        );
+      } else {
+        addToast(`গুগল লগইন ব্যর্থ হয়েছে: ${e.message}`, "error");
+      }
     }
   };
 
@@ -4378,20 +4437,7 @@ export default function App() {
                       গুগল দিয়ে লগইন
                     </button>
 
-                    {/* APK & WebView Alert Info */}
-                    <div className="mt-4 p-4 rounded-2xl bg-teal-500/10 border border-teal-500/20 text-left font-sans flex items-start gap-2.5">
-                      <div className="shrink-0 text-teal-600 dark:text-teal-400 mt-0.5">
-                        <Smartphone size={16} />
-                      </div>
-                      <div>
-                        <h4 className="text-[11px] font-black text-teal-800 dark:text-teal-300 uppercase tracking-wide">
-                          মোবাইল অ্যাপ/APK ব্যবহারকারী গাইড
-                        </h4>
-                        <p className="text-[10px] text-gray-650 dark:text-gray-300 mt-1 leading-normal font-sans">
-                          গুগলের সিকিউরিটি পলিসির কারণে WebView বক্সে সরাসরি ‘Google Sign In’ ব্লক হতে পারে। শতভাগ সফলভাবে প্রবেশের জন্য দয়া করে উপরে <span className="font-bold underline text-teal-700 dark:text-teal-400">ইমেইল এবং পাসওয়ার্ড (Email & Password)</span> দিয়ে রেজিষ্ট্রেশন বা লগইন সম্পন্ন করুন। এটি সম্পূর্ণ সুরক্ষিত এবং অ্যাপের জন্য সবচেয়ে নির্ভরযোগ্য।
-                        </p>
-                      </div>
-                    </div>
+
                   </>
                 )}
                 <p className="text-center text-xs text-gray-500 mt-4">
