@@ -7,14 +7,23 @@ const app = initializeApp(firebaseConfig);
 
 let dbInstance;
 try {
-  dbInstance = initializeFirestore(app, {
+  const options = {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
     })
-  }, firebaseConfig.firestoreDatabaseId);
+  };
+  if (firebaseConfig.firestoreDatabaseId) {
+    dbInstance = initializeFirestore(app, options, firebaseConfig.firestoreDatabaseId);
+  } else {
+    dbInstance = initializeFirestore(app, options);
+  }
 } catch (e) {
   console.warn("Firestore persistent local cache failed to initialize, falling back to standard Firestore:", e);
-  dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  if (firebaseConfig.firestoreDatabaseId) {
+    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  } else {
+    dbInstance = getFirestore(app);
+  }
 }
 
 export const db = dbInstance;

@@ -709,6 +709,8 @@ export default function App() {
   };
   const [hasDismissedWelcome, setHasDismissedWelcome] = useState(false);
   const [isSecureAdminState, setIsSecureAdminState] = useState(false);
+  const [showAdminCeoModal, setShowAdminCeoModal] = useState(false);
+  const [hasShownCeoWelcome, setHasShownCeoWelcome] = useState(false);
 
   // Helper to check if email is admin securely without exposing raw text
   const checkIsAdminSecure = useCallback(
@@ -791,6 +793,7 @@ export default function App() {
     isOpen: boolean;
     mode: "LOGIN" | "REGISTER" | "FORGOT";
   }>({ isOpen: false, mode: "LOGIN" });
+  const [authEmailInput, setAuthEmailInput] = useState("");
   const [successModal, setSuccessModal] = useState<{
     isOpen: boolean;
     orderId: string | null;
@@ -1336,19 +1339,37 @@ export default function App() {
   ];
 
   const isAdmin = useMemo(() => {
+    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com";
+    const isDirectUidAdmin = user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2";
     return (
       profile?.role === "admin" ||
       profile?.role === "staff" ||
-      isSecureAdminState
+      isSecureAdminState ||
+      isDirectMailAdmin ||
+      isDirectUidAdmin
     );
-  }, [profile, isSecureAdminState]);
+  }, [profile, isSecureAdminState, user]);
 
   const isSuperAdmin = useMemo(() => {
+    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com";
+    const isDirectUidAdmin = user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2";
     return (
       profile?.role === "admin" ||
-      isSecureAdminState
+      isSecureAdminState ||
+      isDirectMailAdmin ||
+      isDirectUidAdmin
     );
-  }, [profile, isSecureAdminState]);
+  }, [profile, isSecureAdminState, user]);
+
+  useEffect(() => {
+    if (user && isAdmin && !hasShownCeoWelcome) {
+      setShowAdminCeoModal(true);
+      setHasShownCeoWelcome(true);
+    } else if (!user) {
+      setHasShownCeoWelcome(false);
+      setShowAdminCeoModal(false);
+    }
+  }, [user, isAdmin, hasShownCeoWelcome]);
 
   const claimDailyReward = async () => {
     if (!user) return;
@@ -3029,16 +3050,24 @@ export default function App() {
       setAuthModal({ ...authModal, isOpen: false });
     } catch (e: any) {
       let errorMessage = e.message;
+      const isTryingAdmin = email.trim().toLowerCase() === "enamulislam1753@gmail.com";
+
       if (e.code === "auth/operation-not-allowed" || e.message?.includes("operation-not-allowed")) {
         errorMessage = "Email/Password লগইন পদ্ধতিটি আপনার ফায়ারবেস কনসোলে সচল (Enable) করা নেই। দয়া করে Firebase Console -> Authentication -> Sign-in method-এ গিয়ে Email/Password সচল করুন।";
-      } else if (e.code === "auth/invalid-credential" || e.message?.includes("invalid-credential")) {
-        errorMessage = "আপনার দেওয়া ইমেইল অথবা পাসওয়ার্ডটি সঠিক নয়! দয়া করে পুনরায় চেক করুন।";
+      } else if (e.code === "auth/invalid-credential" || e.message?.includes("invalid-credential") || e.code === "auth/wrong-password" || e.message?.includes("wrong-password")) {
+        if (isTryingAdmin) {
+          errorMessage = "প্রিয় এডমিন (enamulislam1753@gmail.com), আপনার পাসওয়ার্ডটি সঠিক নয়! আপনি যদি আগে ‘Google Sign-In’ ব্যবহার করে থাকেন, তবে সাধারণ পাসওয়ার্ড দিয়ে লগইন হবে না। সরাসরি বা সলিউশন হিসেবে ‘গুগল দিয়ে লগইন’ বাটন ব্যবহার করুন অথবা এখনই ‘পাসওয়ার্ড ভুলে গেছেন?’ এ ক্লিক করে নতুন পাসওয়ার্ড রিসেট লিংক ইমেল করুন।";
+        } else {
+          errorMessage = "আপনার দেওয়া ইমেইল অথবা পাসওয়ার্ডটি সঠিক নয়! দয়া করে পুনরায় চেক করুন।";
+        }
       } else if (e.code === "auth/user-not-found" || e.message?.includes("user-not-found")) {
-        errorMessage = "এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি! প্রথমে অ্যাকাউন্ট রেজিস্টার করুন।";
-      } else if (e.code === "auth/wrong-password" || e.message?.includes("wrong-password")) {
-        errorMessage = "ভুল পাসওয়ার্ড! দয়া করে সঠিক পাসওয়ার্ড দিয়ে আবার চেষ্টা করুন।";
+        if (isTryingAdmin) {
+          errorMessage = "প্রিয় এডমিন, এই ইমেইল দিয়ে ইমেল-পাসওয়ার্ড রেজিস্টার্ড অ্যাকাউন্ট পাওয়া যায়নি! আপনি সরাসরি ‘গুগল দিয়ে লগইন’ করুন অথবা প্রথমে রেজিস্টার (Register) ট্যাব থেকে নতুন পাসওয়ার্ড সেট করে অ্যাকাউন্ট খুলুন।";
+        } else {
+          errorMessage = "এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি! প্রথমে অ্যাকাউন্টটি রেজিস্টার (Register) করে নিন।";
+        }
       } else if (e.code === "auth/email-already-in-use" || e.message?.includes("email-already-in-use")) {
-        errorMessage = "এই ইমেইলটি দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা হয়েছে! দয়া করে লগইন করুন।";
+        errorMessage = "এই ইমেইলটি দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা হয়েছে! দয়া করে ‘লগইন’ অপশনে ফিরে গিয়ে পাসওয়ার্ড দিয়ে অথবা Google দিয়ে লগইন করুন।";
       } else if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
         errorMessage = "আপনার Vercel বা লাইভ ডোমেনটি (timematebd.vercel.app বা কাস্টম ডোমেন) ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার ডোমেনটি অ্যাড করুন।";
       } else if (e.code === "auth/weak-password" || e.message?.includes("weak-password")) {
@@ -3047,6 +3076,8 @@ export default function App() {
         errorMessage = "ইমেইল ফরম্যাট সঠিক নয়! দয়া করে একটি সঠিক আসল ইমেইল প্রদান করুন।";
       } else if (e.code === "auth/too-many-requests" || e.message?.includes("too-many-requests")) {
         errorMessage = "অতিরিক্ত ভুল প্রচেষ্টার কারণে সাময়িকভাবে লগইন ব্লক করা হয়েছে। দয়া করে কিছুক্ষণ পর আবার চেষ্টা করুন।";
+      } else if (e.code?.includes("invalid-api-key") || e.message?.includes("invalid-api-key") || e.message?.includes("API key not valid") || e.code?.includes("invalid-request") || e.message?.includes("request-invalid") || e.message?.includes("invalid-client")) {
+        errorMessage = "ফায়ারবেস রিকোয়েস্ট বা এপিআই কি সঠিক নয়! দয়া করে Firebase Console থকে সঠিক API ক্রেডেন্সিয়াল নিশ্চিত করুন অথবা Vercel env variables রিফ্রেশ করুন।";
       }
       addToast(errorMessage, "error");
     }
@@ -3414,7 +3445,10 @@ export default function App() {
   };
 
   const deleteOrder = async (id: string) => {
-    if (!isAdmin) {
+    const isUserAdminSec = (user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com") || 
+                           (user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2") || 
+                           isAdmin;
+    if (!isUserAdminSec) {
       addToast("অনুমতি নেই", "error");
       return;
     }
@@ -4360,10 +4394,13 @@ export default function App() {
                 <input
                   id="auth-email"
                   type="email"
+                  value={authEmailInput}
+                  onChange={(e) => setAuthEmailInput(e.target.value)}
                   placeholder="ইমেইল ঠিকানা"
                   className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-sm"
                   required
                 />
+
                 {authModal.mode !== "FORGOT" && (
                   <div className="relative">
                     <input
@@ -4465,6 +4502,55 @@ export default function App() {
                   </button>
                 </p>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Admin CEO Welcome Modal */}
+      <AnimatePresence>
+        {showAdminCeoModal && (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+              onClick={() => setShowAdminCeoModal(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="bg-slate-900 border border-indigo-500/30 text-white rounded-[2.5rem] p-8 w-full max-w-lg relative z-[2010] shadow-[0_0_50px_rgba(99,102,241,0.25)] text-center overflow-hidden"
+            >
+              {/* Background Glows */}
+              <div className="absolute -top-12 -left-12 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="w-20 h-20 bg-gradient-to-tr from-amber-400 via-yellow-500 to-indigo-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.4)] mb-6 animate-bounce">
+                  <span className="text-4xl text-amber-100">👑</span>
+                </div>
+
+                <h3 className="text-3xl font-black tracking-tight mb-3 text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-400 to-indigo-300">
+                  ওয়েল কাল সিএউ অফ টাইম মেট
+                </h3>
+                
+                <p className="text-slate-300 text-sm font-semibold mb-6">
+                  Welcome back, Chief Executive Officer! The dashboard is ready for your command.
+                </p>
+
+                <div className="flex gap-4 w-full">
+                  <button
+                    onClick={() => setShowAdminCeoModal(false)}
+                    className="w-full bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 text-white font-black py-4 px-6 rounded-2xl text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(139,92,246,0.5)] transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                  >
+                    ড্যাশবোর্ড প্রবেশ করুন 🚀
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
@@ -8287,7 +8373,7 @@ export default function App() {
                                         createNotification(
                                           "admin",
                                           "কাজ বাতিল ❌",
-                                          `কর্মী ${empName} অর্ডার নং ${o.id} বাতিল করেছেন।`,
+                                          `কর্মী ${empName} অর্ডার নং ${o.id} বাতিল করেছেন。`,
                                           "order",
                                           o.id,
                                         );
@@ -8322,7 +8408,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setActiveSection("home")}
-                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10"
+                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-150 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10"
                 >
                   <ArrowRight size={20} className="rotate-180" />
                 </button>
@@ -8337,7 +8423,7 @@ export default function App() {
               </div>
 
               {!user ? (
-                <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-12 shadow-xl border border-gray-100 dark:border-white/5 text-center space-y-6">
+                <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-12 shadow-xl border border-gray-150 dark:border-white/5 text-center space-y-6">
                   <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400">
                     <UserRound size={32} />
                   </div>
@@ -8364,14 +8450,14 @@ export default function App() {
                       onClick={() =>
                         setAuthModal({ isOpen: true, mode: "REGISTER" })
                       }
-                      className="px-6 py-3.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-700 dark:text-white font-black rounded-2xl text-xs uppercase active:scale-95 transition-all pointer-events-auto cursor-pointer"
+                      className="px-6 py-3.5 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-700 dark:text-white font-black rounded-2xl text-[10px] uppercase active:scale-95 transition-all pointer-events-auto cursor-pointer"
                     >
                       রেজিস্ট্রেশন করুন
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-8 shadow-xl border border-gray-100 dark:border-white/5">
+                <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-8 shadow-xl border border-gray-150 dark:border-white/5">
                   <form
                     onSubmit={submitEmployeeRegistration}
                     className="space-y-6"
@@ -8597,7 +8683,7 @@ export default function App() {
                     <div className="px-3 py-1 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
                       Admin Control
                     </div>
-                    <h2 className="text-3xl font-black italic tracking-tighter">
+                    <h2 className="text-4xl font-extrabold italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 [text-shadow:0_0_20px_rgba(168,85,247,0.35)] dark:[text-shadow:0_0_40px_rgba(168,85,247,0.85)] filter drop-shadow-[0_0_12px_rgba(99,102,241,0.55)] transition-all duration-500 hover:brightness-110 select-none uppercase">
                       DASHBOARD
                     </h2>
                   </div>
@@ -8855,13 +8941,13 @@ export default function App() {
                    <div className="hidden lg:block bg-white dark:bg-[#0f172a] rounded-[2rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
                     <table className="w-full text-left lg:table-fixed">
                       <thead className="bg-gray-50 dark:bg-white/5 border-b border-gray-100 dark:border-white/5">
-                        <tr className="text-[9px] font-black uppercase text-gray-400 tracking-widest">
-                          <th className="px-3 py-3 lg:w-[12%]">Order ID</th>
-                          <th className="px-3 py-3 lg:w-[25%]">Customer</th>
-                          <th className="px-3 py-3 lg:w-[18%]">Service</th>
-                          <th className="px-3 py-3 lg:w-[22%]">Status</th>
-                          <th className="px-3 py-3 lg:w-[15%]">Billing Info</th>
-                          <th className="px-3 py-3 lg:w-[8%] text-right">Action</th>
+                        <tr className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">
+                          <th className="px-3 py-3 lg:w-[11%]">Order ID</th>
+                          <th className="px-3 py-3 lg:w-[19%]">Customer</th>
+                          <th className="px-3 py-3 lg:w-[15%]">Service</th>
+                          <th className="px-3 py-3 lg:w-[21%]">Status & Forward</th>
+                          <th className="px-3 py-3 lg:w-[22%]">Billing Info</th>
+                          <th className="px-3 py-3 lg:w-[12%] text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="text-sm divide-y divide-gray-50 dark:divide-white/5">
@@ -8889,17 +8975,31 @@ export default function App() {
                               <tr
                                 className={`transition-all ${o.status === "নতুন" ? "bg-rose-50/50 hover:bg-rose-50 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 border-l-4 border-l-rose-500 shadow-sm" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
                               >
-                              <td className="px-6 py-4 font-black text-xs">
-                                {o.id}
+                              <td className="px-3 py-3 font-mono text-[11px] font-bold text-gray-600 dark:text-gray-300">
+                                <div className="flex items-center gap-1">
+                                  <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg select-all">
+                                    #{o.id.substring(0, 8)}..
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(o.id);
+                                      addToast("অর্ডার আইডি কপি করা হয়েছে!", "success");
+                                    }}
+                                    className="p-1 hover:bg-gray-150 dark:hover:bg-white/10 rounded text-gray-400 hover:text-indigo-600"
+                                    title="Copy Order ID"
+                                  >
+                                    <Copy size={10} />
+                                  </button>
+                                </div>
                               </td>
-                              <td className="px-6 py-4">
-                                <p className="font-bold">
+                              <td className="px-3 py-3">
+                                <p className="font-bold text-xs truncate max-w-[150px]">
                                   {o.name || o.sName || "—"}
                                 </p>
-                                <p className="text-[10px] text-gray-500">
+                                <p className="text-[10px] text-gray-500 font-mono font-bold">
                                   {o.phone || o.sPhone}
                                 </p>
-                                <p className="text-[9px] text-gray-400 mt-1 line-clamp-1">
+                                <p className="text-[9px] text-gray-400 mt-1 line-clamp-1 truncate max-w-[150px]">
                                   {o.address || o.rAddr}
                                 </p>
                                 {o.discountCode && (
@@ -8908,15 +9008,15 @@ export default function App() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-6 py-4 text-xs font-medium text-gray-500">
-                                <p>{o.service}</p>
+                              <td className="px-3 py-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                <p className="truncate max-w-[110px]" title={o.service}>{o.service}</p>
                                 {o.subservice && (
-                                  <p className="text-[10px] text-indigo-500 font-bold">
+                                  <p className="text-[10px] text-indigo-500 font-bold truncate max-w-[110px]" title={o.subservice}>
                                     {o.subservice}
                                   </p>
                                 )}
                               </td>
-                              <td className="px-6 py-4">
+                              <td className="px-3 py-3">
                                 <div className="space-y-2">
                                   <select
                                     value={o.status}
@@ -8989,7 +9089,7 @@ export default function App() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-4">
+                              <td className="px-3 py-3">
                                 <div className="flex flex-col gap-2 min-w-[150px]">
                                   <div className="flex items-center gap-1">
                                     <span className="text-[8px] font-bold text-gray-400">
@@ -9033,7 +9133,7 @@ export default function App() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-6 py-4 text-right">
+                              <td className="px-3 py-3 text-right">
                                 <div className="flex justify-end gap-2">
                                   <button
                                     onClick={() => {
@@ -9816,13 +9916,13 @@ export default function App() {
                   <div className="bg-white dark:bg-[#0f172a] rounded-[2rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
                     <table className="w-full text-left lg:table-fixed">
                       <thead className="bg-gray-50 dark:bg-white/5 border-b border-gray-100 dark:border-white/5">
-                        <tr className="text-[9px] font-black uppercase text-gray-400 tracking-widest">
-                          <th className="px-3 py-3 lg:w-[12%]">Order ID</th>
-                          <th className="px-3 py-3 lg:w-[25%]">Customer</th>
-                          <th className="px-3 py-3 lg:w-[18%]">Service</th>
-                          <th className="px-3 py-3 lg:w-[22%]">Status</th>
-                          <th className="px-3 py-3 lg:w-[15%]">Billing Info</th>
-                          <th className="px-3 py-3 lg:w-[8%] text-right">Action</th>
+                        <tr className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">
+                          <th className="px-3 py-3 lg:w-[11%]">Order ID</th>
+                          <th className="px-3 py-3 lg:w-[19%]">Customer</th>
+                          <th className="px-3 py-3 lg:w-[15%]">Service</th>
+                          <th className="px-3 py-3 lg:w-[21%]">Status & Forward</th>
+                          <th className="px-3 py-3 lg:w-[22%]">Billing Info</th>
+                          <th className="px-3 py-3 lg:w-[12%] text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="text-sm divide-y divide-gray-50 dark:divide-white/5">
@@ -9850,34 +9950,48 @@ export default function App() {
                               <tr
                                 className={`transition-all ${o.status === "নতুন" ? "bg-rose-50/50 hover:bg-rose-50 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 border-l-4 border-l-rose-500 shadow-sm" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
                               >
-                               <td className="px-3 py-3.5 font-mono text-[10px] font-bold text-gray-600 dark:text-gray-300 break-all select-all">
-                                 {o.id}
+                               <td className="px-3 py-3 font-mono text-[11px] font-bold text-gray-600 dark:text-gray-300">
+                                 <div className="flex items-center gap-1">
+                                   <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg select-all">
+                                     #{o.id.substring(0, 8)}..
+                                   </span>
+                                   <button
+                                     onClick={() => {
+                                       navigator.clipboard.writeText(o.id);
+                                       addToast("অর্ডার আইডি কপি করা হয়েছে!", "success");
+                                     }}
+                                     className="p-1 hover:bg-gray-150 dark:hover:bg-white/10 rounded text-gray-400 hover:text-indigo-600"
+                                     title="Copy Order ID"
+                                   >
+                                     <Copy size={10} />
+                                   </button>
+                                 </div>
                                </td>
-                               <td className="px-3 py-3.5 max-w-[180px]">
-                                 <p className="font-extrabold text-xs truncate">
+                               <td className="px-3 py-3">
+                                 <p className="font-bold text-xs truncate max-w-[150px]">
                                    {o.name || o.sName || "—"}
                                  </p>
                                  <p className="text-[10px] text-gray-500 font-mono font-bold">
                                    {o.phone || o.sPhone}
                                  </p>
-                                 <p className="text-[9px] text-gray-400 mt-1 truncate" title={o.address || o.rAddr}>
+                                 <p className="text-[9px] text-gray-400 mt-1 line-clamp-1 truncate max-w-[150px]" title={o.address || o.rAddr}>
                                    {o.address || o.rAddr}
                                  </p>
                                  {o.discountCode && (
-                                   <div className="mt-1 px-2 py-0.5 bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 text-pink-700 dark:text-pink-400 rounded-lg text-[8px] font-black tracking-wide inline-flex items-center gap-1">
-                                     <Tag size={8} /> কুপন: <span className="font-mono font-bold bg-pink-100 dark:bg-pink-500/25 px-1 py-0.2 rounded text-pink-800 dark:text-pink-300">{o.discountCode}</span>
+                                   <div className="mt-1.5 px-2.5 py-1 bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 text-pink-700 dark:text-pink-400 rounded-lg text-[9px] font-black tracking-wide inline-flex items-center gap-1.5 shadow-xs">
+                                     <Tag size={10} className="stroke-[3]" /> কুপন: <span className="font-mono font-bold bg-pink-100 dark:bg-pink-500/25 px-1 py-0.2 rounded text-pink-800 dark:text-pink-300">{o.discountCode}</span>
                                    </div>
                                  )}
                                </td>
-                               <td className="px-3 py-3.5 text-xs font-semibold text-gray-700 dark:text-gray-300 max-w-[150px]">
-                                 <p className="truncate font-bold">{o.service}</p>
+                               <td className="px-3 py-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                 <p className="truncate max-w-[110px]" title={o.service}>{o.service}</p>
                                  {o.subservice && (
-                                   <p className="text-[10px] text-indigo-500 font-bold truncate">
+                                   <p className="text-[10px] text-indigo-500 font-bold truncate max-w-[110px]" title={o.subservice}>
                                      {o.subservice}
                                    </p>
                                  )}
                                </td>
-                              <td className="px-6 py-4">
+                               <td className="px-3 py-3">
                                 <div className="space-y-2">
                                   <select
                                     value={o.status}
@@ -9950,7 +10064,7 @@ export default function App() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-4">
+                              <td className="px-3 py-3">
                                 <div className="flex flex-col gap-2 min-w-[150px]">
                                   <div className="flex items-center gap-1">
                                     <span className="text-[8px] font-bold text-gray-400">
@@ -9994,7 +10108,7 @@ export default function App() {
                                   )}
                                 </div>
                               </td>
-                              <td className="px-6 py-4 text-right">
+                              <td className="px-3 py-3 text-right">
                                 <div className="flex justify-end gap-2">
                                   <button
                                     onClick={() => {
