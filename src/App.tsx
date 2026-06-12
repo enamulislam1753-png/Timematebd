@@ -122,6 +122,9 @@ import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import firebaseConfig from "./firebaseConfig";
 import OrderTracker from "./components/OrderTracker";
+import { SecurityHub } from "./components/SecurityHub";
+import { CoinEconomy } from "./components/CoinEconomy";
+import { OperationsControl } from "./components/OperationsControl";
 
 // Helper to construct public URL instead of the private dev iframe URL
 const getPublicAppUrl = () => {
@@ -711,6 +714,59 @@ export default function App() {
   const [isSecureAdminState, setIsSecureAdminState] = useState(false);
   const [showAdminCeoModal, setShowAdminCeoModal] = useState(false);
   const [hasShownCeoWelcome, setHasShownCeoWelcome] = useState(false);
+
+  // Advanced Neuro-Marketing States
+  const [socialProofIndex, setSocialProofIndex] = useState(0);
+  const [showSocialProof, setShowSocialProof] = useState(false);
+  const [countdownMinutes, setCountdownMinutes] = useState(4);
+  const [countdownSeconds, setCountdownSeconds] = useState(12);
+  const [backWarningModal, setBackWarningModal] = useState({ isOpen: false, type: "" });
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const proofs = [
+      "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
+      "এনামুল হোসেন এইমাত্র টিকেট বুকিং সার্ভিস সফলভাবে বুক করেছেন (২ মিনিট আগে) 🎫",
+      "নিশাত তাসনিম এইমাত্র বাজার ও গ্রোসারি সার্ভিস বুক করেছেন (৫ মিনিট আগে) 🛒",
+      "আসিফ আহমেদ এইমাত্র একটি রিমাইন্ডার সার্ভিস সেট করেছেন (১ মিনিট আগে) ⏰",
+      "রাইহান উদ্দিন এইমাত্র এক্সপার্ট ইলেকট্রিশিয়ান সার্ভিস বুক করেছেন (৪ মিনিট আগে) ⚡",
+    ];
+    
+    const interval = setInterval(() => {
+      setShowSocialProof(false);
+      setTimeout(() => {
+        setSocialProofIndex((prev) => (prev + 1) % proofs.length);
+        setShowSocialProof(true);
+      }, 500);
+    }, 15000);
+    
+    const initialTimeout = setTimeout(() => {
+      setShowSocialProof(true);
+    }, 3000);
+    
+    return () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdownSeconds((prev) => {
+        if (prev === 0) {
+          setCountdownMinutes((m) => {
+            if (m === 0) {
+              return Math.floor(Math.random() * 5) + 4;
+            }
+            return m - 1;
+          });
+          return 59;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Helper to check if email is admin securely without exposing raw text
   const checkIsAdminSecure = useCallback(
@@ -1888,17 +1944,27 @@ export default function App() {
     return unsub;
   }, [user]);
 
-  const [orderForm, setOrderForm] = useState({
-    service: "",
-    subservice: "",
-    name: "",
-    phone: "",
-    address: "",
-    date: "",
-    time: "12:00",
-    note: "",
-    coupon: "",
+  const [orderForm, setOrderForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tm_order_form");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      service: "",
+      subservice: "",
+      name: "",
+      phone: "",
+      address: "",
+      date: "",
+      time: "12:00",
+      note: "",
+      coupon: "",
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem("tm_order_form", JSON.stringify(orderForm));
+  }, [orderForm]);
 
   const [services, setServices] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -1965,18 +2031,39 @@ export default function App() {
     return map;
   }, [activeServices]);
 
-  const [courierForm, setCourierForm] = useState({
-    sName: "",
-    sPhone: "",
-    rName: "",
-    rPhone: "",
-    rAddr: "",
-    fromZone: "ঢাকা",
-    toZone: "ঢাকা",
-    weight: "0.5kg",
-    pType: "ডকুমেন্ট",
-    deliveryType: "রেগুলার",
+  const [courierForm, setCourierForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tm_courier_form");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      sName: "",
+      sPhone: "",
+      rName: "",
+      rPhone: "",
+      rAddr: "",
+      fromZone: "ঢাকা",
+      toZone: "ঢাকা",
+      weight: "0.5kg",
+      pType: "ডকুমেন্ট",
+      deliveryType: "রেগুলার",
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem("tm_courier_form", JSON.stringify(courierForm));
+  }, [courierForm]);
+
+  const handleBackToHome = (fromForm: 'order' | 'courier') => {
+    const isOrderDirty = (fromForm === 'order' && (orderForm.name || orderForm.phone || orderForm.address || orderForm.note));
+    const isCourierDirty = (fromForm === 'courier' && (courierForm.rName || courierForm.rPhone || courierForm.rAddr));
+    
+    if (isOrderDirty || isCourierDirty) {
+      setBackWarningModal({ isOpen: true, type: fromForm });
+    } else {
+      setActiveSection("home");
+    }
+  };
 
   // Auto-fill form details from user profile with clean dependencies
   useEffect(() => {
@@ -3444,7 +3531,7 @@ export default function App() {
     }
   };
 
-  const deleteOrder = async (id: string) => {
+  const deleteOrder = async (id: string, bypassModal: boolean = false) => {
     const isUserAdminSec = (user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com") || 
                            (user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2") || 
                            isAdmin;
@@ -3452,14 +3539,17 @@ export default function App() {
       addToast("অনুমতি নেই", "error");
       return;
     }
-    if (confirm("আপনি কি নিশ্চিত যে এই অর্ডারটি স্থায়ীভাবে মুছে ফেলতে চান? এটি আর ফেরত আনা সম্ভব নয়।")) {
-      try {
-        await deleteDoc(doc(db, "orders", id));
-        addToast("অর্ডারটি স্থায়ীভাবে মুছে ফেলা হয়েছে!", "success");
-      } catch (err) {
-        console.error(err);
-        addToast("অর্ডার ডিলিট করতে ব্যর্থ হয়েছে", "error");
-      }
+    if (!bypassModal) {
+      setDeleteConfirmId(id);
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, "orders", id));
+      addToast("অর্ডারটি স্থায়ীভাবে মুছে ফেলা হয়েছে!", "success");
+      setDeleteConfirmId(null);
+    } catch (err) {
+      console.error(err);
+      addToast("অর্ডার ডিলিট করতে ব্যর্থ হয়েছে", "error");
     }
   };
 
@@ -4257,7 +4347,7 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${isDarkMode ? "dark bg-[#0a0a1a] text-white" : "bg-slate-50 text-slate-900"}`}
+      className={`min-h-screen ${isDarkMode ? "dark bg-[#0a0a1a] text-white" : "bg-[#FAFAF6] text-slate-900"}`}
     >
       <AnimatePresence mode="popLayout">
         {isOpening && (
@@ -4550,6 +4640,147 @@ export default function App() {
                     ড্যাশবোর্ড প্রবেশ করুন 🚀
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Social Proof Notification Bottom Corner */}
+      <AnimatePresence>
+        {showSocialProof && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-6 left-6 z-[1500] max-w-sm bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-2xl p-4 rounded-2xl flex items-center gap-3"
+          >
+            <div className="relative flex-shrink-0">
+              <span className="flex h-3 w-3 absolute -top-1 -right-1">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-lg">
+                👥
+              </div>
+            </div>
+            <div className="text-left">
+              <p className="text-[11px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
+                {trans(
+                  [
+                    "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
+                    "এনামুল হোসেন এইমাত্র টিকেট বুকিং সার্ভিস সফলভাবে বুক করেছেন (২ মিনিট আগে) 🎫",
+                    "নিশাত তাসনিম এইমাত্র বাজার ও গ্রোসারি সার্ভিস বুক করেছেন (৫ মিনিট আগে) 🛒",
+                    "আসিফ আহমেদ এইমাত্র একটি রিমাইন্ডার সার্ভিস সেট করেছেন (১ মিনিট আগে) ⏰",
+                    "রাইহান উদ্দিন এইমাত্র এক্সপার্ট ইলেকট্রিশিয়ান সার্ভিস বুক করেছেন (৪ মিনিট আগে) ⚡",
+                  ][socialProofIndex]
+                )}
+              </p>
+              <p className="text-[9px] text-emerald-500 font-extrabold uppercase tracking-widest mt-0.5">
+                Verified Booking
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Persuasive Sunk-Cost Warning Modal */}
+      <AnimatePresence>
+        {backWarningModal.isOpen && (
+          <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+              onClick={() => setBackWarningModal({ isOpen: false, type: "" })}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-amber-500/30 text-slate-950 dark:text-white rounded-3xl p-6 w-full max-w-sm relative z-[2510] shadow-[0_0_50px_rgba(245,158,11,0.15)] text-center font-sans"
+            >
+              <div className="w-12 h-12 bg-amber-100 dark:bg-amber-500/10 rounded-full flex items-center justify-center m-auto text-xl mb-4 text-amber-500 animate-pulse">
+                ⏳
+              </div>
+              <h4 className="text-lg font-black mb-2 text-amber-600 dark:text-amber-400">
+                বুকিং স্লট ৭০% সুরক্ষিত!
+              </h4>
+              <p className="text-xs text-gray-500 dark:text-slate-300 leading-relaxed mb-6 font-bold">
+                {trans(
+                  "আপনার তথ্য সংরক্ষিত রয়েছে। এখন ফিরে গেলে আপনার বুকিং কিউ (Queue) টাইম রিসেট হবে এবং ডেডিকেটেড রাইডার স্লটটি অন্য কারো কাছে হস্তান্তরিত হতে পারে!",
+                  "Your details are saved! Leaving now will reset your booking queue time and release your reserved priority slot to another user."
+                )}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => setBackWarningModal({ isOpen: false, type: "" })}
+                  className="px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-xs rounded-xl shadow-lg shadow-orange-500/20 active:scale-95"
+                >
+                  বুকিং নিয়ে এগিয়ে যান 🚀
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBackWarningModal({ isOpen: false, type: "" });
+                    setActiveSection("home");
+                  }}
+                  className="px-4 py-3 bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-slate-400 font-bold text-xs rounded-xl hover:bg-gray-200"
+                >
+                  তবুও ফিরে যাবো
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Order Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <div className="fixed inset-0 z-[2500] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+              onClick={() => setDeleteConfirmId(null)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-rose-500/30 text-slate-950 dark:text-white rounded-[2rem] p-6 w-full max-w-sm relative z-[2510] shadow-[0_0_50px_rgba(244,63,94,0.15)] text-center font-sans"
+            >
+              <div className="w-12 h-12 bg-rose-100 dark:bg-rose-500/10 rounded-full flex items-center justify-center m-auto text-xl mb-4 text-rose-500">
+                ⚠️
+              </div>
+              <h4 className="text-lg font-black mb-2 text-rose-600 dark:text-rose-400">
+                অর্ডার স্থায়ীভাবে মুছে ফেলুন?
+              </h4>
+              <p className="text-xs text-gray-500 dark:text-slate-300 leading-relaxed mb-6 font-bold">
+                {trans(
+                  "আপনি কি নিশ্চিত যে এই অর্ডারটি স্থায়ীভাবে মুছে ফেলতে চান? এটি আর ফেরত আনা সম্ভব নয় এবং ডেটাবেস থেকে সম্পূর্ণরূপে রিমুভ হবে।",
+                  "Are you sure you want to permanently delete this order? This action is irreversible and the document will be permanently expunged."
+                )}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => deleteOrder(deleteConfirmId, true)}
+                  className="px-5 py-3 bg-gradient-to-r from-rose-500 to-red-650 text-white font-black text-xs rounded-xl shadow-lg shadow-rose-500/20 active:scale-95 cursor-pointer"
+                >
+                  হ্যাঁ, ডিলিট করুন 🗑️
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="px-4 py-3 bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-slate-400 font-bold text-xs rounded-xl hover:bg-gray-200 cursor-pointer"
+                >
+                  বাতিল
+                </button>
               </div>
             </motion.div>
           </div>
@@ -5952,9 +6183,83 @@ export default function App() {
               )}
 
               {/* Services Grid */}
-              <section id="services-grid">
-                <h2 className="text-2xl font-black mb-6">আমাদের সেবাসমূহ</h2>
+              <section id="services-grid" className="mt-8">
+                {/* Countdown Urgency Banner */}
+                <div className="mb-6 p-4 bg-orange-50 dark:bg-orange-950/10 border border-orange-200 dark:border-orange-500/20 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🔥</span>
+                    <div className="text-left">
+                      <h4 className="text-xs font-black text-orange-800 dark:text-orange-400 uppercase tracking-wider">
+                        লিমিটেড এক্সপ্রেস ডেলিভারি স্লট
+                      </h4>
+                      <p className="text-[10px] text-orange-700/80 dark:text-orange-300/80 font-semibold">
+                        অতিরিক্ত অর্ডার চাপের কারণে পরবর্তী ডেলিভারি স্লটটি শীঘ্রই বন্ধ হতে যাচ্ছে!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-[#FAF9F5] dark:bg-slate-950 border border-orange-200 dark:border-orange-500/30 px-4 py-2 rounded-xl flex items-center gap-2 font-mono text-xs font-black text-orange-600 dark:text-orange-400">
+                    <span>স্লট বন্ধের বাকি:</span>
+                    <span>0{countdownMinutes}:{countdownSeconds < 10 ? `0${countdownSeconds}` : countdownSeconds} মি:</span>
+                  </div>
+                </div>
+
+                <h2 className="text-3xl font-black mb-6 tracking-tight">আমাদের সেবাসমূহ</h2>
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Premium VIP Golden Express Courier (The Price Anchor) */}
+                  <div
+                    onClick={() => {
+                      setCourierForm({
+                        ...courierForm,
+                        deliveryType: "ভিআইপি গোল্ডেন এক্সপ্রেস",
+                      });
+                      setActiveSection("courier-form");
+                    }}
+                    className="group cursor-pointer rounded-[2.5rem] p-7 border transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-amber-500/20 bg-slate-950 text-white border-amber-500/50 relative overflow-hidden sm:col-span-2 flex flex-col justify-between shadow-lg"
+                  >
+                    {/* Glowing gold radial aura */}
+                    <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-tr from-amber-400 via-amber-300 to-yellow-500 text-slate-950 shadow-lg shadow-amber-500/20 animate-pulse">
+                          👑
+                        </div>
+                        <span className="px-3 py-1 text-[9px] font-black tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full uppercase">
+                          VIP Golden Anchor
+                        </span>
+                      </div>
+                      <h3 className="font-extrabold text-amber-200 text-lg md:text-xl tracking-tight mb-2">
+                        👑 ভিআইপি গোল্ডেন এক্সপ্রেস কুরিয়ার
+                      </h3>
+                      <p className="text-xs text-amber-100/75 leading-relaxed mb-4">
+                        আমাদের রাজকীয় elite লজিস্টিকস। ৩ ঘণ্টায় ঢাকা জুরে সুনিশ্চিত হাই-সিকিউরিটি ডেলিভারি ও রিয়েল-টাইম লাইভ ট্র্যাকিং সিস্টেম।
+                      </p>
+                      <ul className="mb-6 space-y-1.5 text-[11px] text-amber-200/80">
+                        <li className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                          <span>৩ ঘণ্টায় সুপারফাস্ট কাস্টম ডেলিভারি</span>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                          <span>অন-ডিমান্ড অগ্রাধিকার রোড সাপোর্ট</span>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                          <span>১০০% বিমাকৃত রিফান্ড অ্যাসুরেন্স</span>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="pt-4 border-t border-amber-500/20 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] text-amber-400/70 font-bold uppercase tracking-wider">পরিষেবা মূল্য</p>
+                        <p className="font-black text-2xl text-amber-400">৳২,৫০০ <span className="text-xs font-normal text-amber-400/50">ফিক্সড</span></p>
+                      </div>
+                      <button className="py-3 px-5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black rounded-xl hover:scale-105 transition-all text-[10px] flex items-center gap-1 shadow-md shadow-amber-500/20 cursor-pointer">
+                        Secure Spot <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
                   {activeServices.map((s) => (
                     <ServiceCard
                       key={s.id || s.title}
@@ -6302,8 +6607,8 @@ export default function App() {
               <div className="flex items-center gap-4 mb-8">
                 <button
                   type="button"
-                  onClick={() => setActiveSection("home")}
-                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10"
+                  onClick={() => handleBackToHome('order')}
+                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10 cursor-pointer"
                 >
                   <ArrowRight size={20} className="rotate-180" />
                 </button>
@@ -6313,6 +6618,31 @@ export default function App() {
               </div>
               <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-8 shadow-xl border border-gray-100 dark:border-white/5">
                 <div className="space-y-6">
+                  {/* Geometric Progress tracker (Zeigarnik Loop) */}
+                  <div className="mb-6 p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5">
+                    <div className="flex items-center justify-between max-w-md mx-auto">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${orderForm.service ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600"}`}>
+                          ১
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">সেবা বাছাই</span>
+                      </div>
+                      <div className={`h-0.5 flex-1 mx-2 transition-all ${orderForm.service ? "bg-indigo-600" : "bg-gray-200 dark:bg-white/10"}`}></div>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${orderForm.name && orderForm.phone ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
+                          ২
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">তথ্য প্রদান</span>
+                      </div>
+                      <div className={`h-0.5 flex-1 mx-2 transition-all ${orderForm.name && orderForm.phone ? "bg-indigo-600" : "bg-gray-200 dark:bg-white/10"}`}></div>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${orderForm.name && orderForm.phone && orderForm.service ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
+                          ৩
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">নিশ্চিতকরণ</span>
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-4">
                     <label className="block text-[10px] font-black uppercase text-gray-400 tracking-[0.2em] mb-4">
                       {trans("সার্ভিস নির্বাচন করুন", "Select Service")}
@@ -6433,9 +6763,9 @@ export default function App() {
                   <button
                     type="button"
                     onClick={placeOrder}
-                    className="w-full py-5 bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 transition-all active:scale-[0.98] mt-4 uppercase tracking-[0.2em] text-xs hover:brightness-110 flex items-center justify-center gap-3"
+                    className="w-full py-5 bg-[#F97316] hover:bg-orange-600 text-white font-black rounded-3xl shadow-xl shadow-orange-500/20 hover:scale-[1.01] transition-all active:scale-[0.98] mt-4 uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 cursor-pointer"
                   >
-                    {trans("অর্ডার নিশ্চিতকরণ", "Confirm Order")}{" "}
+                    {trans("নিশ্চিন্তে বুকিং করুন — Secure My Booking 🛡️", "Secure My Booking — Confirm & Relax 🛡️")}{" "}
                     <ArrowRight size={18} />
                   </button>
                 </div>
@@ -6453,8 +6783,8 @@ export default function App() {
               <div className="flex items-center gap-4 mb-8">
                 <button
                   type="button"
-                  onClick={() => setActiveSection("home")}
-                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10"
+                  onClick={() => handleBackToHome('courier')}
+                  className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10 cursor-pointer"
                 >
                   <ArrowRight size={20} className="rotate-180" />
                 </button>
@@ -6464,6 +6794,31 @@ export default function App() {
               </div>
               <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-8 shadow-xl border border-gray-100 dark:border-white/5">
                 <div className="space-y-6">
+                  {/* Geometric Progress tracker (Zeigarnik Loop) */}
+                  <div className="mb-6 p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5">
+                    <div className="flex items-center justify-between max-w-md mx-auto">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 bg-indigo-600 text-white shadow-md shadow-indigo-600/30`}>
+                          ১
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">তথ্য প্রদান</span>
+                      </div>
+                      <div className="h-0.5 flex-1 bg-indigo-600 mx-2"></div>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${courierForm.rName && courierForm.rPhone ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
+                          ২
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">ঠিকানা ও জোন</span>
+                      </div>
+                      <div className={`h-0.5 flex-1 mx-2 transition-all ${courierForm.rName && courierForm.rPhone ? "bg-indigo-600" : "bg-gray-200 dark:bg-white/10"}`}></div>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${courierForm.rAddr && courierForm.rName ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
+                          ৩
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">পেমেন্ট ও বুকিং</span>
+                      </div>
+                    </div>
+                  </div>
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
@@ -6606,9 +6961,9 @@ export default function App() {
                   <button
                     type="button"
                     onClick={placeCourierOrder}
-                    className="w-full py-5 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-xl shadow-teal-500/20 transition-all active:scale-[0.98] uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 cursor-pointer"
+                    className="w-full py-5 bg-[#F97316] hover:bg-orange-600 text-white font-black rounded-3xl shadow-xl shadow-orange-500/20 hover:scale-[1.01] transition-all active:scale-[0.98] uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 cursor-pointer"
                   >
-                    {trans("বুকিং সম্পন্ন করুন", "Complete Booking")} <Check size={18} />
+                    {trans("বুকিং সুরক্ষিত করুন — Confirm & Relax 🛡️", "Confirm & Relax — Secure My Booking 🛡️")} <Check size={18} />
                   </button>
                 </div>
               </div>
@@ -9887,6 +10242,10 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    {/* Security and Fraud alert hub */}
+                    <div className="mt-8">
+                      <SecurityHub />
+                    </div>
                   </div>
                 </div>
               )}
@@ -9913,7 +10272,7 @@ export default function App() {
                       <option value="স্প্যাম">স্প্যাম</option>
                     </select>
                   </div>
-                  <div className="bg-white dark:bg-[#0f172a] rounded-[2rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
+                  <div className="hidden lg:block bg-white dark:bg-[#0f172a] rounded-[2rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
                     <table className="w-full text-left lg:table-fixed">
                       <thead className="bg-gray-50 dark:bg-white/5 border-b border-gray-100 dark:border-white/5">
                         <tr className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">
@@ -10199,6 +10558,311 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* MOBILE / RESPONSIVE VIEW (visible on small/medium screens, fits automatically) */}
+                  <div className="block lg:hidden space-y-4">
+                    {orders
+                      .filter(
+                        (o) =>
+                          (o.id
+                            .toLowerCase()
+                            .includes(adminSearch.toLowerCase()) ||
+                            (o.name || "")
+                              .toLowerCase()
+                              .includes(adminSearch.toLowerCase()) ||
+                            (o.phone || "")
+                              .toLowerCase()
+                              .includes(adminSearch.toLowerCase()) ||
+                            (o.transactionId || "")
+                              .toLowerCase()
+                              .includes(adminSearch.toLowerCase())) &&
+                          (adminStatusFilter
+                            ? o.status === adminStatusFilter
+                            : true),
+                      )
+                      .map((o) => (
+                        <div
+                          key={`mobile-card-tab-${o.id}`}
+                          className={`p-5 rounded-[2rem] border-2 transition-all ${
+                            o.status === "নতুন"
+                              ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/20 dark:border-rose-500/40"
+                              : "bg-white dark:bg-[#0f172a] border-gray-100 dark:border-white/5"
+                          } shadow-sm space-y-4`}
+                        >
+                          {/* Card Header */}
+                          <div className="flex justify-between items-start gap-2 border-b border-gray-100 dark:border-white/5 pb-3">
+                            <div>
+                              <span className="text-[10px] uppercase font-black tracking-widest text-[#6366f1] dark:text-indigo-400 bg-[#6366f1]/10 px-2.5 py-0.5 rounded-lg select-all">
+                                #{o.id}
+                              </span>
+                              {o.timestamp && (
+                                <div className="text-[10px] text-gray-400 mt-1 font-bold">
+                                  {new Date(o.timestamp).toLocaleDateString(
+                                    language === "BN" ? "bn-BD" : "en-US",
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <span
+                              className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-lg border ${
+                                o.status === "নতুন"
+                                  ? "bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900 animate-pulse"
+                                  : o.status === "বাতিল"
+                                    ? "bg-red-50 dark:bg-red-950 text-red-650 dark:text-red-400 border-red-200"
+                                    : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 border-indigo-100 dark:border-indigo-900/50"
+                              }`}
+                            >
+                              {o.status}
+                            </span>
+                          </div>
+
+                          {/* Customer Profile & Booking Info */}
+                          <div className="space-y-1.5 text-xs">
+                            <p className="font-extrabold text-gray-900 dark:text-white flex flex-wrap items-center gap-1.5">
+                              {o.name || o.sName || "—"}{" "}
+                              {o.discountCode && (
+                                <span className="text-[9px] font-black bg-pink-155 dark:bg-pink-500/25 px-1.5 py-0.5 rounded text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-transparent">
+                                  {o.discountCode}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400 font-bold">
+                              📞 <a href={`tel:${o.phone || o.sPhone}`} className="hover:underline text-indigo-500 font-mono">{o.phone || o.sPhone}</a>
+                            </p>
+                            <p className="text-gray-400 mt-0.5 break-all">
+                              📍 {o.address || o.rAddr}
+                            </p>
+                          </div>
+
+                          {/* Service Section */}
+                          <div className="p-3 bg-gray-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5 text-xs">
+                            <span className="text-[9px] uppercase font-black text-gray-400 block mb-1">
+                              Service details • বিভাগ
+                            </span>
+                            <p className="font-black text-gray-800 dark:text-gray-200">
+                              {o.service}
+                            </p>
+                            {o.subservice && (
+                              <p className="text-[10px] text-indigo-500 font-black mt-0.5">
+                                ↳ {o.subservice}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Status and Assignment Form Controls */}
+                          <div className="space-y-2">
+                            <div>
+                              <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">
+                                রিয়াল-টাইম স্ট্যাটাস পরিবর্তন
+                              </label>
+                              <select
+                                value={o.status}
+                                onChange={(e) =>
+                                  updateOrderStatus(o.id, e.target.value)
+                                }
+                                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#1e293b] border border-gray-200 dark:border-white/10 rounded-xl text-xs font-bold outline-none cursor-pointer text-gray-900 dark:text-white"
+                              >
+                                {[
+                                  "নতুন",
+                                  "মূল্য নির্ধারণ",
+                                  "পেমেন্ট যাচাই",
+                                  "পেইড",
+                                  "প্রক্রিয়াধীন",
+                                  "সম্পন্ন",
+                                  "বাতিল",
+                                  "স্প্যাম",
+                                ].map((s) => (
+                                  <option
+                                    key={s}
+                                    value={s}
+                                    className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-200"
+                                  >
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Employee Assignment */}
+                            <div className="text-[10px]">
+                              {["পেইড", "পরিশোধিত", "প্রক্রিয়াধীন", "সম্পন্ন"].includes(o.status) ? (
+                                <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 p-3 rounded-xl space-y-2">
+                                  <span className="text-[8px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-extrabold flex items-center gap-1">
+                                    🟢 কর্মী ফরোয়ার্ড করুন:
+                                  </span>
+                                  <select
+                                    value={o.assignedEmployeeId || ""}
+                                    onChange={(e) =>
+                                      assignOrderEmployee(
+                                        o.id,
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full text-[9px] font-bold p-1 bg-white dark:bg-slate-950 border border-emerald-200 dark:border-emerald-500/20 rounded-lg text-emerald-800 dark:text-emerald-200 outline-none"
+                                  >
+                                    <option value="">
+                                      নিযুক্ত নেই (Unassigned)
+                                    </option>
+                                    {employees
+                                      .filter(
+                                        (emp) => emp.status === "অনুমোদিত",
+                                      )
+                                      .map((emp) => (
+                                        <option key={emp.uid || emp.id} value={emp.uid || emp.id}>
+                                          👤 {emp.fullName} ({emp.serviceSector || "সবাই"})
+                                        </option>
+                                      ))}
+                                  </select>
+                                  {o.assignedEmployeeName && (
+                                    <p className="text-[8px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded inline-block">
+                                      ✅ {o.assignedEmployeeName} ({o.assignedEmployeePhone})
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="bg-slate-50 dark:bg-slate-800/40 border border-dashed border-gray-350 dark:border-white/5 p-2 rounded-xl text-[9px] text-gray-500 dark:text-gray-400 text-center font-bold">
+                                  🔒 পেমেন্ট হলে কর্মী অ্যাসাইন ওপেন হবে
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Billing & Inputs */}
+                          <div className="p-3.5 bg-gray-50 dark:bg-white/5 rounded-2xl border border-gray-150 dark:border-white/5 grid grid-cols-2 gap-3 text-xs">
+                            <div className="col-span-2 text-[9px] font-black uppercase text-gray-400 tracking-wider">
+                              Billing details • বিলিং এবং পেমেন্ট
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 font-bold block">
+                                বিলিং চার্জ (TK)
+                              </label>
+                              <input
+                                id={`charge-mobile-tab-${o.id}`}
+                                type="number"
+                                defaultValue={o.charge}
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900 text-xs text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 font-bold block">
+                                পেমেন্ট মেথড
+                              </label>
+                              <select
+                                id={`method-mobile-tab-${o.id}`}
+                                defaultValue={o.paymentMethod || "bKash"}
+                                className="w-full text-xs bg-white dark:bg-slate-900 border border-gray-200 dark:border-white/10 p-1.5 rounded-lg text-gray-900 dark:text-white outline-none cursor-pointer"
+                              >
+                                <option value="bKash">bKash</option>
+                                <option value="Nagad">Nagad</option>
+                                <option value="Rocket">Rocket</option>
+                                <option value="Bank">Bank</option>
+                              </select>
+                            </div>
+                            <div className="col-span-2 space-y-1">
+                              <label className="text-[9px] text-gray-400 font-bold block">
+                                আমাদের পার্সোনাল নাম্বার
+                              </label>
+                              <input
+                                id={`number-mobile-tab-${o.id}`}
+                                type="text"
+                                defaultValue={o.paymentNumber || ""}
+                                placeholder="নাম্বার লিখুন"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900 text-xs text-gray-900 dark:text-white outline-none"
+                              />
+                            </div>
+                            {o.transactionId && (
+                              <div className="col-span-2 p-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl">
+                                <p className="text-[8px] font-black text-emerald-600 uppercase mb-0.5">
+                                  Customer TxID:
+                                </p>
+                                <p className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 select-all">
+                                  {o.transactionId}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Footer Actions Row */}
+                          <div className="flex flex-col gap-2 border-t border-gray-100 dark:border-white/5 pt-3">
+                            <button
+                              onClick={() => {
+                                const chargeInput = (document.getElementById(`charge-${o.id}`) || document.getElementById(`charge-mobile-tab-${o.id}`)) as HTMLInputElement;
+                                const methodSelect = (document.getElementById(`method-${o.id}`) || document.getElementById(`method-mobile-tab-${o.id}`)) as HTMLSelectElement;
+                                const numberInput = (document.getElementById(`number-${o.id}`) || document.getElementById(`number-mobile-tab-${o.id}`)) as HTMLInputElement;
+
+                                const charge = parseInt(chargeInput?.value) || 0;
+                                const method = methodSelect?.value || "bKash";
+                                const number = numberInput?.value || "";
+
+                                confirmOrderDetails(o.id, charge, method, number);
+                              }}
+                              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/10 transition-all active:scale-[0.98] cursor-pointer"
+                            >
+                              <Send size={14} /> আপডেট ও পেমেন্ট রিকোয়েস্ট পাঠান
+                            </button>
+                            
+                            <div className="grid grid-cols-4 gap-2">
+                              <button
+                                onClick={() => {
+                                  setActiveAdminChats((prev) => ({
+                                    ...prev,
+                                    [o.id]: !prev[o.id],
+                                  }));
+                                }}
+                                className={`py-2 px-1 rounded-xl border font-black text-[9px] uppercase flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                                  activeAdminChats[o.id]
+                                    ? "bg-indigo-600 text-white border-transparent"
+                                    : "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-white/10"
+                                }`}
+                              >
+                                <MessageSquare size={12} /> চ্যাট
+                              </button>
+                              
+                              <button
+                                onClick={async () => {
+                                  if (confirm("অর্ডারটি কি বাতিল করতে চান?")) {
+                                    await updateOrderStatus(o.id, "বাতিল");
+                                  }
+                                }}
+                                className="py-2 px-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-450 rounded-xl border border-rose-200 dark:border-transparent font-black text-[9px] uppercase flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <XCircle size={12} /> বাতিল
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  if (confirm("অর্ডারটি কি স্প্যাম হিসেবে মার্ক করতে চান?")) {
+                                    updateOrderStatus(o.id, "স্প্যাম");
+                                  }
+                                }}
+                                className="py-2 px-1 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-gray-400 rounded-xl border border-gray-250 dark:border-transparent font-black text-[9px] uppercase flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Ban size={12} /> স্প্যাম
+                              </button>
+
+                              <button
+                                onClick={() => deleteOrder(o.id)}
+                                className="py-2 px-1 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 text-red-650 rounded-xl border border-red-200 dark:border-transparent font-black text-[9px] uppercase flex items-center justify-center gap-1 hover:scale-105 transition-all cursor-pointer"
+                              >
+                                <Trash2 size={12} /> মুছুন
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Mobile Active Chat Row inside card if active */}
+                          {activeAdminChats[o.id] && (
+                            <div className="bg-slate-50/50 dark:bg-slate-950/20 p-2 rounded-2xl mt-2 border border-indigo-100/30 dark:border-white/5">
+                              <OrderChat
+                                orderId={o.id}
+                                currentUserId={user?.uid || ""}
+                                currentUserName="Super Admin"
+                                senderRole="admin"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
                 </div>
               )}
 
@@ -10421,6 +11085,10 @@ export default function App() {
               )}
 
               {adminTab === "lottery" && (
+                <OperationsControl />
+              )}
+
+              {adminTab === "original_lottery_hidden" && (
                 <div className="space-y-8 font-sans">
                   {/* Banner */}
                   <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-indigo-500/10 rounded-[2rem] border border-amber-500/20 p-8 shadow-xl">
@@ -12356,6 +13024,10 @@ export default function App() {
               )}
 
               {adminTab === "coins" && (
+                <CoinEconomy />
+              )}
+
+              {adminTab === "original_coins_hidden" && (
                 <div className="space-y-6">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-amber-500/10 p-6 rounded-[2.5rem] border border-amber-500/20 shadow-sm font-sans theme-auto-bg">
                     <div>
