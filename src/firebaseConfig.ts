@@ -16,21 +16,8 @@ const getDynamicDatabaseId = (): string | undefined => {
     }
   }
 
-  if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    const isStudioEnvironment =
-      hostname.includes("run.app") ||
-      hostname.includes("aistudio") ||
-      hostname.includes("google") ||
-      hostname.includes("localhost") ||
-      hostname === "127.0.0.1";
-
-    if (isStudioEnvironment) {
-      return "ai-studio-5f44c271-9a6a-4045-92dd-bbec258d887b";
-    }
-  }
-
-  return undefined; // Falls back to (default) database in production Vercel apps
+  // Always fallback to the correct registered database ID so that data loads perfectly in both local, preview, and Vercel production environments.
+  return "ai-studio-5f44c271-9a6a-4045-92dd-bbec258d887b";
 };
 
 const firebaseConfig = {
