@@ -100,6 +100,7 @@ import {
 } from "recharts";
 import {
   EyeOff,
+  ArrowLeft,
   UserRound,
   ChevronLeft,
   ChevronRight,
@@ -2119,6 +2120,24 @@ export default function App() {
   const [userSearchText, setUserSearchText] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("all");
   const [employeeTab, setEmployeeTab] = useState("jobs");
+  // Customer Support Live Chat Real-Time States
+  const [supportRooms, setSupportRooms] = useState<any[]>([]);
+  const [activeSupportRoomId, setActiveSupportRoomId] = useState<string | null>(null);
+  const [isSupportWidgetOpen, setIsSupportWidgetOpen] = useState(false);
+  const [isSupportMenuOpen, setIsSupportMenuOpen] = useState(false);
+  const [guestSession, setGuestSession] = useState<{ uid: string; name: string; phone?: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem("tm_guest_support_session");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [guestNameInput, setGuestNameInput] = useState("");
+  const [guestPhoneInput, setGuestPhoneInput] = useState("");
+  const [customerChatMessage, setCustomerChatMessage] = useState("");
+  const [adminChatMessage, setAdminChatMessage] = useState("");
+  const [customerSupportMessages, setCustomerSupportMessages] = useState<any[]>([]);
   const [employeeTrackComment, setEmployeeTrackComment] = useState<{ [orderId: string]: string }>({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminStatusFilter, setAdminStatusFilter] = useState("");
@@ -2843,6 +2862,105 @@ export default function App() {
       unsubRewards();
     };
   }, []);
+
+  // Live Support Rooms Stream Subscription
+  useEffect(() => {
+    const isRep = profile?.role === "admin" || profile?.role === "staff" || profile?.role === "employee" || isSecureAdminState;
+    let unsubscribeRooms: () => void = () => {};
+
+    if (isRep) {
+      const q = query(collection(db, "support_rooms"), orderBy("lastMessageTime", "desc"));
+      unsubscribeRooms = onSnapshot(
+        q,
+        (snapshot) => {
+          const rooms: any[] = [];
+          snapshot.forEach((doc) => {
+            rooms.push({ id: doc.id, ...doc.data() });
+          });
+          setSupportRooms(rooms);
+        },
+        (err) => handleFirestoreError(err, "LIST", "support_rooms")
+      );
+    } else {
+      const currentId = user?.uid || guestSession?.uid;
+      if (currentId) {
+        const q = query(collection(db, "support_rooms"), where("customerUid", "==", currentId));
+        unsubscribeRooms = onSnapshot(
+          q,
+          (snapshot) => {
+            const rooms: any[] = [];
+            snapshot.forEach((doc) => {
+              rooms.push({ id: doc.id, ...doc.data() });
+            });
+            setSupportRooms(rooms);
+          },
+          (err) => handleFirestoreError(err, "LIST", "support_rooms")
+        );
+      } else {
+        setSupportRooms([]);
+      }
+    }
+
+    return () => {
+      unsubscribeRooms();
+    };
+  }, [profile, user, guestSession, isSecureAdminState]);
+
+  // Customer / Guest Support Messages Room Subscriptions
+  useEffect(() => {
+    const currentId = user?.uid || guestSession?.uid;
+    if (!currentId) {
+      setCustomerSupportMessages([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "support_rooms", currentId, "messages"),
+      orderBy("timestamp", "asc")
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs: any[] = [];
+        snapshot.forEach((doc) => {
+          msgs.push({ id: doc.id, ...doc.data() });
+        });
+        setCustomerSupportMessages(msgs);
+      },
+      (err) => console.error("Error fetching support messages:", err)
+    );
+
+    return () => unsubscribe();
+  }, [user, guestSession]);
+
+  // Representative/Admin Live Messages Thread Subscription
+  const [activeRoomMessages, setActiveRoomMessages] = useState<any[]>([]);
+  useEffect(() => {
+    if (!activeSupportRoomId) {
+      setActiveRoomMessages([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "support_rooms", activeSupportRoomId, "messages"),
+      orderBy("timestamp", "asc")
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs: any[] = [];
+        snapshot.forEach((doc) => {
+          msgs.push({ id: doc.id, ...doc.data() });
+        });
+        setActiveRoomMessages(msgs);
+      },
+      (err) => console.error("Error fetching thread messages:", err)
+    );
+
+    return () => unsubscribe();
+  }, [activeSupportRoomId]);
 
   // Data Loading
   useEffect(() => {
@@ -4253,6 +4371,316 @@ export default function App() {
     } catch (e) {
       addToast("মেসেজ পাঠাতে ব্যর্থ হয়েছে", "error");
     }
+  };
+
+  // Customer Support Live Chat Actions
+  const startGuestSupportChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = guestNameInput.trim();
+    const phone = guestPhoneInput.trim();
+    if (!name) {
+      addToast("অনুগ্রহ করে আপনার নাম টাইপ করুন।", "error");
+      return;
+    }
+    
+    const uid = "guest_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+    const session = { uid, name, phone: phone || "N/A" };
+    
+    try {
+      // Initialize the support room
+      await setDoc(doc(db, "support_rooms", uid), {
+        id: uid,
+        customerUid: uid,
+        customerName: name,
+        customerPhone: phone || "N/A",
+        customerEmail: "guest@timemate.bd",
+        isGuest: true,
+        lastMessage: "কাস্টমার চ্যাটে যুক্ত হয়েছে। 👋",
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 1, // Let reps see first ping
+        status: "open"
+      });
+      
+      // Add first automated message
+      await addDoc(collection(db, "support_rooms", uid, "messages"), {
+        senderId: "system",
+        senderName: "সিস্টেম",
+        senderRole: "system",
+        text: `স্বাগতম ${name}! আমাদের প্রতিনিধিরা এই মুহূর্তে লাইভ আছেন। দয়া করে আপনার প্রশ্নটি নীচে লিখুন, আমরা খুব দ্রুত উত্তর দেবো।`,
+        timestamp: new Date().toISOString()
+      });
+      
+      localStorage.setItem("tm_guest_support_session", JSON.stringify(session));
+      setGuestSession(session);
+      addToast("সরাসরি সাপোর্ট চ্যাট শুরু হয়েছে!", "success");
+    } catch (err) {
+      console.error("Error starting guest support room:", err);
+      addToast("চ্যাট শুরু করা যায়নি। আবার চেষ্টা করুন।", "error");
+    }
+  };
+
+  const sendCustomerSupportMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = customerChatMessage.trim();
+    if (!text) return;
+    setCustomerChatMessage("");
+    
+    let currentId = user?.uid || guestSession?.uid;
+    let name = user?.displayName || guestSession?.name || "কাস্টমার";
+    let phone = profile?.phone || guestSession?.phone || "N/A";
+    let email = user?.email || "guest@timemate.bd";
+    let isGuest = !user;
+    
+    if (!currentId) return;
+    
+    try {
+      await addDoc(collection(db, "support_rooms", currentId, "messages"), {
+        senderId: currentId,
+        senderName: name,
+        senderRole: "customer",
+        text: text,
+        timestamp: new Date().toISOString()
+      });
+      
+      await setDoc(doc(db, "support_rooms", currentId), {
+        id: currentId,
+        customerUid: currentId,
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
+        isGuest: isGuest,
+        lastMessage: text,
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 1,
+        status: "open"
+      }, { merge: true });
+    } catch (err) {
+      console.error("Error sending support message:", err);
+      addToast("মেসেজ পাঠানো যায়নি। আবার চেষ্টা করুন।", "error");
+    }
+  };
+
+  const sendRepresentativeReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = adminChatMessage.trim();
+    if (!text || !activeSupportRoomId) return;
+    setAdminChatMessage("");
+    
+    let senderName = profile?.fullName || profile?.name || user?.displayName || "প্রতিনিধি";
+    let senderRole = profile?.role || "admin";
+    
+    try {
+      await addDoc(collection(db, "support_rooms", activeSupportRoomId, "messages"), {
+        senderId: user?.uid || "rep",
+        senderName: senderName,
+        senderRole: senderRole,
+        text: text,
+        timestamp: new Date().toISOString()
+      });
+      
+      await updateDoc(doc(db, "support_rooms", activeSupportRoomId), {
+        lastMessage: text,
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: 0,
+        status: "active"
+      });
+    } catch (err) {
+      console.error("Error sending admin reply:", err);
+      addToast("বার্তা পাঠানো যায়নি।", "error");
+    }
+  };
+
+  // Unified Representative Customer Support Live Chat Center (Admin/Staff/Employee Side)
+  const renderSupportChatPanel = () => {
+    return (
+      <div className="bg-white dark:bg-[#0f172a] rounded-[2.5rem] border border-gray-150 dark:border-white/5 shadow-2xl overflow-hidden flex flex-col md:flex-row h-[605px] font-sans">
+        {/* Left Side: Active Support Rooms/Chats list */}
+        <div className="w-full md:w-80 border-r border-gray-150 dark:border-white/5 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/10 shrink-0">
+          <div className="p-5 border-b border-gray-150 dark:border-white/5 bg-white dark:bg-[#0f172a]/20">
+            <h3 className="text-sm font-black text-gray-900 dark:text-white flex items-center gap-2">
+              <MessageSquare size={16} className="text-indigo-600" />
+              সক্রিয় কাস্টমার চ্যাট রুম ({supportRooms.length})
+            </h3>
+            <p className="text-[10px] text-gray-400 font-bold tracking-wider mt-1 uppercase">
+              কাস্টমার চ্যাট রিকুয়েস্টসমূহ
+            </p>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {supportRooms.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-xs font-bold font-sans">
+                কোনো চ্যাট রিকুয়েস্ট এই মুহূর্তে সচল নেই। ☕
+              </div>
+            ) : (
+              supportRooms.map((room) => {
+                const isActive = activeSupportRoomId === room.id;
+                const dateStr = room.lastMessageTime ? new Date(room.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+                return (
+                  <button
+                    key={room.id}
+                    onClick={() => {
+                      setActiveSupportRoomId(room.id);
+                      // Clear unread count
+                      try {
+                        updateDoc(doc(db, "support_rooms", room.id), { unreadCount: 0 });
+                      } catch (e) {}
+                    }}
+                    className={`w-full p-4 rounded-2xl text-left transition-all border flex items-start gap-3 relative cursor-pointer ${
+                      isActive
+                        ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-600/15"
+                        : "bg-white dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/40 border-gray-150 dark:border-white/5 text-gray-700 dark:text-gray-100"
+                    }`}
+                  >
+                    <div className="relative shrink-0 mt-0.5">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black ${
+                        isActive ? "bg-white text-indigo-600" : "bg-indigo-105 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+                      }`}>
+                        {room.customerName?.slice(0, 2).toUpperCase() || "CU"}
+                      </div>
+                      {room.unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-xs truncate">
+                          {room.customerName}
+                        </span>
+                        <span className={`text-[8px] shrink-0 font-bold ml-1 ${isActive ? "text-white/70" : "text-gray-450"}`}>
+                          {dateStr}
+                        </span>
+                      </div>
+                      
+                      <p className={`text-[10px] truncate mt-1 ${isActive ? "text-white/80" : "text-gray-500 dark:text-gray-400"}`}>
+                        {room.lastMessage || "নতুন চ্যাট সেশন..."}
+                      </p>
+                      
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        {room.isGuest ? (
+                          <span className={`px-2 py-0.2 rounded text-[7px] font-black uppercase tracking-wider ${isActive ? "bg-white/20 text-white" : "bg-amber-500/10 text-amber-500"}`}>
+                            GUEST 👤
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.2 rounded text-[7px] font-black uppercase tracking-wider ${isActive ? "bg-white/20 text-white" : "bg-teal-500/10 text-teal-500"}`}>
+                            USER ✅
+                          </span>
+                        )}
+                        <span className={`text-[8px] font-mono shrink-0 truncate ${isActive ? "text-white/70" : "text-gray-500"}`}>
+                          {room.customerPhone}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+        
+        {/* Right Side: Message Threads Pane */}
+        <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f172a] relative">
+          {!activeSupportRoomId ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-450">
+              <MessageSquare size={48} className="text-gray-300 dark:text-gray-700 animate-pulse mb-4" />
+              <h3 className="font-extrabold text-sm text-gray-800 dark:text-gray-200">
+                গ্রাহক সিলেক্ট করুন
+              </h3>
+              <p className="text-[11px] text-gray-450 dark:text-gray-400 mt-1 max-w-sm leading-relaxed">
+                লাইভ সাপোর্ট প্রদানের জন্য বাম প্যানেলে সচল চ্যাটরুম বা মেসেজ রিকুয়েস্ট থেকে যেকোনো গ্রাহক সিলেক্ট করুন।
+              </p>
+            </div>
+          ) : (
+            (() => {
+              const activeRoom = supportRooms.find((r) => r.id === activeSupportRoomId);
+              return (
+                <>
+                  {/* Active Header Info Banner */}
+                  <div className="px-6 py-4 border-b border-gray-150 dark:border-white/5 flex items-center justify-between bg-slate-50/50 dark:bg-white/1 shrink-0">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-xs text-gray-950 dark:text-white truncate">
+                          {activeRoom?.customerName || "অজ্ঞাত গ্রাহক"}
+                        </h4>
+                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-black tracking-widest ${activeRoom?.isGuest ? "bg-amber-500/15 text-amber-500" : "bg-teal-500/15 text-teal-500"}`}>
+                          {activeRoom?.isGuest ? "GUEST" : "REGULAR CLIENT"}
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-bold block mt-0.5">
+                        মোবাইল: {activeRoom?.customerPhone || "N/A"} • ইমেল: {activeRoom?.customerEmail || "N/A"}
+                      </p>
+                    </div>
+                    
+                    <button
+                      onClick={async () => {
+                        if (confirm("এই চ্যাট রুমের সেশন কি সম্পন্ন এবং বন্ধ করতে চান?")) {
+                          try {
+                            await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
+                            setActiveSupportRoomId(null);
+                            addToast("চ্যাট সেশন সমাধানকৃত অবস্তায় বন্ধ করা হয়েছে।");
+                          } catch (e) {
+                            addToast("রুম রিমুভ ব্যর্থ হয়েছে।");
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-red-100 hover:bg-red-500/20 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                    >
+                      রুম বন্ধ করুন ❌
+                    </button>
+                  </div>
+                  
+                  {/* Messages Flow Area */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                    {activeRoomMessages.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 text-xs font-semibold">
+                        চ্যাট শুরু হয়েছে। বার্তা পাঠান।
+                      </div>
+                    ) : (
+                      activeRoomMessages.map((m) => {
+                        const isMe = m.senderRole === "admin" || m.senderRole === "staff" || m.senderRole === "employee" || m.senderId === user?.uid;
+                        const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+                        return (
+                          <div key={m.id} className={`flex items-start gap-1 p-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-xs ${
+                              isMe 
+                                ? 'bg-indigo-650 text-white rounded-tr-none' 
+                                : 'bg-gray-100 dark:bg-white/5 text-gray-800 dark:text-gray-100 rounded-tl-none'
+                            }`}>
+                              <div className="flex items-center gap-2 justify-between mb-1 opacity-60 text-[8px] font-black uppercase">
+                                <span>{m.senderName} ({m.senderRole === "employee" ? "Rider" : m.senderRole === "staff" ? "Staff" : m.senderRole === "admin" ? "Admin" : m.senderRole})</span>
+                                <span>{timeStr}</span>
+                              </div>
+                              <p className="text-xs font-semibold leading-relaxed break-words font-sans">{m.text}</p>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  
+                  {/* Input Form typing bar */}
+                  <form onSubmit={sendRepresentativeReply} className="p-4 border-t border-gray-150 dark:border-white/5 flex gap-2 bg-slate-50/50 dark:bg-[#0f172a]/60 shrink-0">
+                    <input
+                      type="text"
+                      value={adminChatMessage}
+                      onChange={(e) => setAdminChatMessage(e.target.value)}
+                      placeholder="এখানে কাস্টমারের জন্য বার্তা টাইপ করুন..."
+                      className="flex-1 px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-gray-800 dark:text-white"
+                    />
+                    <button
+                      type="submit"
+                      className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow cursor-pointer transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      উত্তর দিন <Send size={12} className="inline ml-1" />
+                    </button>
+                  </form>
+                </>
+              );
+            })()
+          )}
+        </div>
+      </div>
+    );
   };
 
   // Render components
@@ -5983,12 +6411,13 @@ export default function App() {
 
                         {/* Interactive Wheel UI */}
                         <div className="py-6 flex flex-col items-center justify-center relative">
-                          <div className="relative w-56 h-56 rounded-full border-[8px] border-indigo-600/20 bg-slate-150 dark:bg-[#090a19] shadow-inner flex items-center justify-center overflow-hidden">
+                          <div className="relative w-56 h-56 rounded-full border-[8px] border-indigo-600/30 bg-[#090a19] shadow-2xl flex items-center justify-center overflow-hidden">
                             {/* Inner circle segments */}
                             <motion.div
                               animate={{ rotate: spinDeg }}
                               transition={{ duration: 4, ease: [0.1, 0.8, 0.3, 1] }}
-                              className="w-full h-full rounded-full relative flex items-center justify-center"
+                              style={{ background: "conic-gradient(from -25.7deg, #4f46e5 0deg 51.4deg, #9333ea 51.4deg 102.8deg, #2563eb 102.8deg 154.2deg, #059669 154.2deg 205.6deg, #e11d48 205.6deg 257deg, #d97706 257deg 308.4deg, #db2777 308.4deg 360deg)" }}
+                              className="w-full h-full rounded-full relative flex items-center justify-center border border-white/10"
                             >
                               {[
                                 { points: 5, label: "৫", color: "bg-indigo-600", border: "border-indigo-700/20", deg: 0 },
@@ -6949,167 +7378,170 @@ export default function App() {
                   onClick={() => handleBackToHome('courier')}
                   className="p-3 bg-white dark:bg-slate-900/40 text-gray-700 dark:text-white rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 transition-all hover:bg-gray-50 dark:hover:bg-white/10 cursor-pointer"
                 >
-                  <ArrowRight size={20} className="rotate-180" />
+                  <ArrowLeft size={18} />
                 </button>
-                <h2 className="text-3xl font-black tracking-tight flex items-center gap-2">
-                  {trans("কুরিয়ার বুকিং", "Courier Booking")}
-                </h2>
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight text-gray-900 dark:text-white">
+                    {trans("কুরিয়ার ও পার্সেল বুকিং", "Courier & Parcel Booking")}
+                  </h1>
+                  <p className="text-xs text-gray-450 dark:text-gray-400 font-bold">
+                    {trans("দ্রুত ও নিরাপদ ক্যাশ-অন-ডেলিভারি পার্সেল সার্ভিস", "Fast and secure cash-on-delivery parcel service")}
+                  </p>
+                </div>
               </div>
-              <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[2.5rem] p-8 shadow-xl border border-gray-100 dark:border-white/5">
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+                {/* Left side: Sender & Recipient Profile boxes */}
                 <div className="space-y-6">
-                  {/* Geometric Progress tracker (Zeigarnik Loop) */}
-                  <div className="mb-6 p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5">
-                    <div className="flex items-center justify-between max-w-md mx-auto">
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 bg-indigo-600 text-white shadow-md shadow-indigo-600/30`}>
-                          ১
-                        </div>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">তথ্য প্রদান</span>
+                  {/* Sender Card */}
+                  <div className="bg-white dark:bg-[#0f172a] rounded-3xl p-6 border border-gray-150 dark:border-white/5 shadow-md space-y-4">
+                    <h3 className="text-xs font-black uppercase text-gray-900 dark:text-white pb-3 border-b border-gray-100 dark:border-white/5 flex items-center gap-2">
+                      📤 {trans("প্রেরক সংক্রান্ত তথ্য (SENDER INFO)", "SENDER INFO")}
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("আপনার নাম", "Your Name")}</label>
+                        <input
+                          value={courierForm.sName}
+                          onChange={(e) => setCourierForm({ ...courierForm, sName: e.target.value })}
+                          placeholder={trans("প্রেরকের নাম লিখুন", "Sender name")}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        />
                       </div>
-                      <div className="h-0.5 flex-1 bg-indigo-600 mx-2"></div>
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${courierForm.rName && courierForm.rPhone ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
-                          ২
-                        </div>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">ঠিকানা ও জোন</span>
-                      </div>
-                      <div className={`h-0.5 flex-1 mx-2 transition-all ${courierForm.rName && courierForm.rPhone ? "bg-indigo-600" : "bg-gray-200 dark:bg-white/10"}`}></div>
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black transition-all duration-300 ${courierForm.rAddr && courierForm.rName ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30" : "bg-gray-100 dark:bg-white/5 text-gray-400 dark:text-gray-500"}`}>
-                          ৩
-                        </div>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wide text-gray-400">পেমেন্ট ও বুকিং</span>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("মোবাইল নম্বর", "Mobile Number")}</label>
+                        <input
+                          value={courierForm.sPhone}
+                          onChange={(e) => setCourierForm({ ...courierForm, sPhone: e.target.value })}
+                          placeholder="017XXXXXXXX"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-mono font-medium"
+                        />
                       </div>
                     </div>
                   </div>
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("প্রেরকের নাম (Sender Name)", "Sender Name")}
-                      </label>
-                      <input
-                        value={courierForm.sName}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            sName: e.target.value,
-                          })
-                        }
-                        placeholder={trans("আপনার নাম", "Your Name")}
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white"
-                      />
+
+                  {/* Recipient Card */}
+                  <div className="bg-white dark:bg-[#0f172a] rounded-3xl p-6 border border-gray-150 dark:border-white/5 shadow-md space-y-4">
+                    <h3 className="text-xs font-black uppercase text-gray-900 dark:text-white pb-3 border-b border-gray-100 dark:border-white/5 flex items-center gap-2">
+                      📥 {trans("প্রাপক সংক্রান্ত তথ্য (RECIPIENT INFO)", "RECIPIENT INFO")}
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("প্রাপকের নাম", "Recipient Name")}</label>
+                        <input
+                          value={courierForm.rName}
+                          onChange={(e) => setCourierForm({ ...courierForm, rName: e.target.value })}
+                          placeholder={trans("প্রাপকের নাম", "Recipient's Name")}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("মোবাইল নম্বর", "Mobile")}</label>
+                        <input
+                          value={courierForm.rPhone}
+                          onChange={(e) => setCourierForm({ ...courierForm, rPhone: e.target.value })}
+                          placeholder="017XXXXXXXX"
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-mono font-medium"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("বিস্তারিত ঠিকানা", "Detail Address")}</label>
+                        <textarea
+                          value={courierForm.rAddr}
+                          onChange={(e) => setCourierForm({ ...courierForm, rAddr: e.target.value })}
+                          placeholder={trans("প্রাপকের ডেলিভারি ঠিকানা লিখুন", "Recipient's Delivery Address")}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium h-20 resize-none"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("প্রেরকের ফোন (Sender Phone)", "Sender Phone")}
-                      </label>
-                      <input
-                        value={courierForm.sPhone}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            sPhone: e.target.value,
-                          })
-                        }
-                        placeholder="০১৭XXXXXXXX"
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white"
-                      />
+                  </div>
+                </div>
+
+                {/* Right side: Logistics options and Pricing card */}
+                <div className="space-y-6">
+                  <div className="bg-white dark:bg-[#0f172a] rounded-3xl p-6 border border-gray-150 dark:border-white/5 shadow-md space-y-4">
+                    <h3 className="text-xs font-black uppercase text-gray-900 dark:text-white pb-3 border-b border-gray-100 dark:border-white/5">
+                      ⚙️ {trans("ডেলিভারি এবং পার্সেল সেটিংস", "DELIVERY & PARCEL SETTINGS")}
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider">{trans("কোথা থেকে", "From Zone")}</label>
+                        <select
+                          value={courierForm.fromZone}
+                          onChange={(e) => setCourierForm({ ...courierForm, fromZone: e.target.value })}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        >
+                          <option value="ঢাকা">ঢাকা (Dhaka)</option>
+                          <option value="অন্যান্য">ঢাকার বাইরে (Outside Dhaka)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider">{trans("কোথায়", "To Zone")}</label>
+                        <select
+                          value={courierForm.toZone}
+                          onChange={(e) => setCourierForm({ ...courierForm, toZone: e.target.value })}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        >
+                          <option value="ঢাকা">ঢাকা (Dhaka)</option>
+                          <option value="অন্যান্য">ঢাকার বাইরে (Outside Dhaka)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider">{trans("ओজন (Weight)", "Weight")}</label>
+                        <select
+                          value={courierForm.weight}
+                          onChange={(e) => setCourierForm({ ...courierForm, weight: e.target.value })}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        >
+                          <option value="0.5kg">0.5 kg</option>
+                          <option value="1kg">1 kg</option>
+                          <option value="2kg">2 kg</option>
+                          <option value="5kg">5 kg</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider">{trans("পার্সেল টাইপ", "Parcel Type")}</label>
+                        <select
+                          value={courierForm.pType}
+                          onChange={(e) => setCourierForm({ ...courierForm, pType: e.target.value })}
+                          className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
+                        >
+                          <option value="ডকুমেন্ট">ডকুমেন্ট (Document)</option>
+                          <option value="বক্স/কার্টন">বক্স/প্যাকেজ (Box/Boxed)</option>
+                          <option value="লিকুইড/কাচ">কাঁচের সামগ্রী (Fragile)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-gray-450 dark:text-gray-400 uppercase tracking-wider">{trans("ডেলিভারি ধরন", "Delivery Mode")}</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {["রেগুলার", "এক্সপ্রেস"].map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setCourierForm({ ...courierForm, deliveryType: mode })}
+                            className={`py-3.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                              courierForm.deliveryType === mode
+                                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                                : "bg-gray-50 dark:bg-slate-950/50 text-gray-505 dark:text-gray-405 hover:bg-gray-100 border border-gray-200 dark:border-white/10"
+                            }`}
+                          >
+                            ⚡ {mode === "রেগুলার" ? "রেগুলার (Regular)" : "এক্সপ্রেস (Express +৳৫০)"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("প্রাপকের নাম (Recipient Name)", "Recipient Name")}
-                      </label>
-                      <input
-                        value={courierForm.rName}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            rName: e.target.value,
-                          })
-                        }
-                        placeholder={trans("প্রাপকের নাম দিন", "Recipient Name")}
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("প্রাপকের ফোন (Recipient Phone)", "Recipient Phone")}
-                      </label>
-                      <input
-                        value={courierForm.rPhone}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            rPhone: e.target.value,
-                          })
-                        }
-                        placeholder="০১৭XXXXXXXX"
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("কোথা থেকে পাঠাবেন (From Zone)", "From Zone")}
-                      </label>
-                      <select
-                        value={courierForm.fromZone}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            fromZone: e.target.value,
-                          })
-                        }
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white cursor-pointer"
-                      >
-                        <option value="ঢাকা">{trans("ঢাকা (Inside Dhaka)", "Dhaka (Inside Dhaka)")}</option>
-                        <option value="অন্যান্য">{trans("অন্যান্য (Outside Dhaka)", "Others (Outside Dhaka)")}</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                        {trans("কোথায় পাঠাবেন (To Zone)", "To Zone")}
-                      </label>
-                      <select
-                        value={courierForm.toZone}
-                        onChange={(e) =>
-                          setCourierForm({
-                            ...courierForm,
-                            toZone: e.target.value,
-                          })
-                        }
-                        className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white cursor-pointer"
-                      >
-                        <option value="ঢাকা">{trans("ঢাকা (Inside Dhaka)", "Dhaka (Inside Dhaka)")}</option>
-                        <option value="অন্যান্য">{trans("অন্যান্য (Outside Dhaka)", "Others (Outside Dhaka)")}</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 dark:text-slate-300 uppercase tracking-widest">
-                      {trans("গন্তব্য ঠিকানা (Recipient Full Address)", "Recipient Full Address")}
-                    </label>
-                    <input
-                      value={courierForm.rAddr}
-                      onChange={(e) =>
-                        setCourierForm({
-                          ...courierForm,
-                          rAddr: e.target.value,
-                        })
-                      }
-                      placeholder={trans("বিস্তারিত ডেলিভারি ঠিকানা", "Detailed delivery address")}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-teal-500 transition-all font-medium text-gray-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div className="p-6 bg-teal-50 dark:bg-teal-500/10 rounded-3xl border border-teal-100 dark:border-teal-500/20 text-center relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
+                  {/* Summary card opening */}
+                  <div className="bg-teal-50 dark:bg-[#115e59]/10 rounded-3xl p-6 border border-teal-500/10 dark:border-teal-500/20 relative overflow-hidden">
+                    <div className="absolute right-0 w-24 h-24 bg-teal-500/5 blur-2xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
                     <p className="text-[10px] text-teal-600 font-black uppercase tracking-[0.2em] mb-1">
                       {trans("কুরিয়ার চার্জ", "Courier Charges")}
                     </p>
@@ -7575,6 +8007,17 @@ export default function App() {
                                     Date.now(),
                                 ).toLocaleDateString()}
                               </p>
+                              {/* Mobile-only pricing and payment number */}
+                              <div className="mt-1 flex flex-col gap-0.5 sm:hidden">
+                                <p className="text-xs font-black text-indigo-600 dark:text-indigo-400">
+                                  চার্জ: {order.charge > 0 ? `৳${order.charge}` : "মূল্য ধার্য হয়নি"}
+                                </p>
+                                {order.paymentNumber && (
+                                  <p className="text-[10px] font-bold text-slate-500">
+                                    পেমেন্ট নং: {order.paymentNumber} ({order.paymentMethod})
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-6">
@@ -7646,6 +8089,17 @@ export default function App() {
                                   className="px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-black rounded-xl transition-all active:scale-95"
                                 >
                                   {trans("বাতিল করুন", "Cancel")}
+                                </button>
+                              )}
+                              {order.status === "মূল্য নির্ধারণ" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPaymentModal({ isOpen: true, order });
+                                  }}
+                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white text-xs font-bold rounded-xl transition-all active:scale-95"
+                                >
+                                  পেমেন্ট করুন
                                 </button>
                               )}
                               <button
@@ -7723,44 +8177,31 @@ export default function App() {
                              ].map((step, idx) => (
                                <div
                                  key={idx}
-                                 className="flex flex-col items-center gap-3 relative z-10 w-1/5 text-center"
+                                 className="flex flex-col items-center z-10 relative"
                                >
                                  <div
-                                   className={`w-9 h-9 rounded-2xl border-4 flex items-center justify-center transition-all duration-500 ${step.active ? "bg-indigo-600 border-indigo-100 dark:border-indigo-900/50 text-white shadow-xl shadow-indigo-500/30 scale-110" : "bg-white dark:bg-slate-900 border-gray-50 dark:border-white/5 text-gray-300"}`}
+                                   className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-black transition-all duration-500 ${
+                                     step.active
+                                       ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-110"
+                                       : "bg-gray-100 dark:bg-white/5 text-gray-450 dark:text-gray-400"
+                                   }`}
                                  >
-                                   {idx === 0 ? (
-                                     <FileText size={14} />
-                                   ) : idx === 1 ? (
-                                     <Tag size={14} />
-                                   ) : idx === 2 ? (
-                                     <CheckCircle2 size={14} />
-                                   ) : idx === 3 ? (
-                                     <Activity size={14} />
-                                   ) : (
-                                     <Box size={14} />
-                                   )}
+                                   {idx + 1}
                                  </div>
-                                 <div className="space-y-1">
-                                   <p
-                                     className={`text-[9px] font-black uppercase tracking-widest ${step.active ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400"}`}
-                                   >
-                                     {step.label}
-                                   </p>
-                                   <p
-                                     className={`text-[7px] font-bold ${step.active ? "text-indigo-400" : "text-gray-300"} hidden sm:block`}
-                                   >
-                                     {step.status === order.status
-                                       ? "CURRENT"
-                                       : step.active
-                                         ? "DONE"
-                                         : "WAITING"}
-                                   </p>
-                                 </div>
+                                 <span
+                                   className={`text-[9px] mt-2 font-black uppercase tracking-wider transition-all duration-500 ${
+                                     step.active
+                                       ? "text-indigo-600 dark:text-indigo-400 font-black"
+                                       : "text-gray-405 dark:text-gray-400"
+                                   }`}
+                                 >
+                                   {step.label}
+                                 </span>
                                </div>
                              ))}
-                           </div>
-                         </div>
-                       </div>
+                          </div>
+                        </div>
+                      </div>
                      ))
                  )}
                </div>
@@ -8413,15 +8854,16 @@ export default function App() {
               })()}
 
               {/* Navigation Tabs for Employee */}
-              <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5">
+              <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
                 {[
                   { id: "jobs", label: "সহলভ্য নতুন কাজ (Job Board) 📋" },
                   { id: "my-tasks", label: "আমার চলমান কাজসমূহ 🚚" },
+                  { id: "customer-support", label: "গ্রাহক লাইভ সাপোর্ট চ্যাট 💬" },
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setEmployeeTab(tab.id)}
-                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all focus:outline-none ${employeeTab === tab.id ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"}`}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all focus:outline-none whitespace-nowrap ${employeeTab === tab.id ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"}`}
                   >
                     {tab.label}
                   </button>
@@ -8491,7 +8933,7 @@ export default function App() {
                                   ? `${o.sName} থেকে ${o.rName}`
                                   : o.service || "নতুন বুকিং"}
                               </h3>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                              <p className="text-xs text-gray-500 dark:text-gray-405 line-clamp-2">
                                 {o.type === "Courier"
                                   ? `পার্সেল: ${o.parcelType} (${o.parcelWeight}kg) • ঠিকানা: ${o.rAddress || o.rAddr}`
                                   : o.address || "ঠিকানা প্রযোজ্য নয়"}
@@ -8912,6 +9354,17 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {employeeTab === "customer-support" && (
+                <div className="space-y-4 font-sans">
+                  <div className="bg-gradient-to-r from-teal-500/10 to-indigo-600/10 border border-indigo-100/30 text-indigo-700 dark:text-indigo-400 rounded-3xl p-5 shadow-sm">
+                    <p className="text-xs font-extrabold flex items-center gap-2">
+                      <MessageSquare size={16} /> গ্রাহকদের সকল লাইভ চ্যাট কোয়েরি এবং ইনকোয়ারি রিয়েল-টাইমে সমাধান করুন। আপনার উত্তরের সাথে সাথে গ্রাহকের ফোনে তা আপডেট হয়ে যাবে।
+                    </p>
+                  </div>
+                  {renderSupportChatPanel()}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -9213,6 +9666,7 @@ export default function App() {
                   {[
                     ...(isSuperAdmin ? ["dashboard"] : []),
                     "orders",
+                    "live-chat",
                     "services",
                     "employees",
                     ...(isSuperAdmin ? ["all_users"] : []),
@@ -9232,10 +9686,12 @@ export default function App() {
                         ? "ড্যাশবোর্ড"
                         : tab === "orders"
                           ? "অর্ডারস"
-                          : tab === "services"
-                            ? "সার্ভিসসমূহ"
-                            : tab === "employees"
-                              ? "টিম/কর্মী 👥"
+                          : tab === "live-chat"
+                            ? "গ্রাহক লাইভ চ্যাট 💬"
+                            : tab === "services"
+                              ? "সার্ভিসসমূহ"
+                              : tab === "employees"
+                                ? "টিম/কর্মী 👥"
                               : tab === "all_users"
                                 ? "মোট ইউজার সংখ্যা 👥"
                                 : tab === "messages"
@@ -9243,7 +9699,7 @@ export default function App() {
                                   : tab === "reviews"
                                     ? "রিভিউস"
                                     : tab === "coupons"
-                                      ? "کোপন"
+                                      ? "কুপনসমূহ"
                                       : tab === "coins"
                                         ? "কয়েন উইথড্র 🪙"
                                         : tab === "lottery"
@@ -9920,6 +10376,19 @@ export default function App() {
                             <div className="col-span-2 text-[9px] font-black uppercase text-gray-400 tracking-wider">
                               Billing details • বিলিং এবং পেমেন্ট
                             </div>
+                             {/* Prominent Billing Info Display Mobile */}
+                             {o.charge !== undefined && o.charge > 0 && (
+                               <div className="col-span-2 p-2.5 bg-indigo-50/75 dark:bg-indigo-950/45 border border-indigo-150/45 rounded-2xl text-left shadow-xs font-sans">
+                                 <p className="text-xs font-black text-indigo-700 dark:text-indigo-400">
+                                   প্রাইজ/চার্জ: ৳{o.charge}
+                                 </p>
+                                 {o.paymentNumber && (
+                                   <p className="text-[10px] font-bold text-slate-705 dark:text-slate-300 mt-1">
+                                     পেমেন্ট নং: {o.paymentNumber} ({o.paymentMethod || "bKash"})
+                                   </p>
+                                 )}
+                               </div>
+                             )}
                             <div className="space-y-1">
                               <label className="text-[9px] text-gray-400 font-bold block">
                                 বিলিং চার্জ (TK)
@@ -10413,6 +10882,12 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === "live-chat" && (
+                <div className="space-y-4">
+                  {renderSupportChatPanel()}
+                </div>
+              )}
+
               {adminTab === "orders" && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -10895,6 +11370,19 @@ export default function App() {
                             <div className="col-span-2 text-[9px] font-black uppercase text-gray-400 tracking-wider">
                               Billing details • বিলিং এবং পেমেন্ট
                             </div>
+                             {/* Prominent Billing Info Display Mobile */}
+                             {o.charge !== undefined && o.charge > 0 && (
+                               <div className="col-span-2 p-2.5 bg-indigo-50/75 dark:bg-indigo-950/45 border border-indigo-150/45 rounded-2xl text-left shadow-xs font-sans">
+                                 <p className="text-xs font-black text-indigo-700 dark:text-indigo-400">
+                                   প্রাইজ/চার্জ: ৳{o.charge}
+                                 </p>
+                                 {o.paymentNumber && (
+                                   <p className="text-[10px] font-bold text-slate-705 dark:text-slate-300 mt-1">
+                                     পেমেন্ট নং: {o.paymentNumber} ({o.paymentMethod || "bKash"})
+                                   </p>
+                                 )}
+                               </div>
+                             )}
                             <div className="space-y-1">
                               <label className="text-[9px] text-gray-400 font-bold block">
                                 বিলিং চার্জ (TK)
@@ -11247,12 +11735,16 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === "lottery" && (
-                <OperationsControl />
-              )}
-
-              {adminTab === "original_lottery_hidden" && (
+              {(adminTab === "lottery" || adminTab === "original_lottery_hidden") && (
                 <div className="space-y-8 font-sans">
+                  {adminTab === "lottery" && (
+                    <div className="bg-white dark:bg-[#0f172a] rounded-[2rem] border border-gray-100 dark:border-white/5 p-8 shadow-xl">
+                      <h4 className="text-sm font-black text-indigo-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <span>📡</span> লটারি লাইভ ড্র উইন্ডো (Live Draw Simulator)
+                      </h4>
+                      <OperationsControl />
+                    </div>
+                  )}
                   {/* Banner */}
                   <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-indigo-500/10 rounded-[2rem] border border-amber-500/20 p-8 shadow-xl">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -12694,110 +13186,17 @@ export default function App() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-xs text-gray-700 dark:text-gray-300">
-                        {(empFilter === "verified"
-                          ? employees.filter((e) => e.status === "অনুমোদিত")
-                          : empFilter === "pending"
-                            ? employees.filter((e) => e.status !== "অনুমোদিত" && e.status !== "বাতিল")
-                            : employees
-                        ).map((emp) => (
-                          <tr
-                            key={emp.id}
-                            className="hover:bg-gray-50/50 dark:hover:bg-white/2 transition-all"
-                          >
-                            <td className="py-4 px-3">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-100 dark:border-white/10 shrink-0">
-                                  {emp.photo ? (
-                                    <img
-                                      referrerPolicy="no-referrer"
-                                      src={emp.photo}
-                                      className="w-full h-full object-cover cursor-zoom-in"
-                                      alt={emp.fullName}
-                                      onClick={() =>
-                                        window.open(emp.photo, "_blank")
-                                      }
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-500">
-                                      <UserIcon size={18} />
-                                    </div>
-                                  )}
-                                </div>
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-1.5 font-sans">
-                                    <p className="font-extrabold text-[#0f172a] dark:text-white font-sans">
-                                      {emp.fullName}
-                                    </p>
-                                    {emp.isOnline ? (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded text-[7px] font-black uppercase animate-pulse">
-                                        <span className="w-1 h-1 rounded-full bg-emerald-500 inline-block" />
-                                        LIVE
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-white/5 text-gray-400 rounded text-[7px] font-black uppercase">
-                                        OFFLINE
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-[9px] text-gray-400">
-                                    UID: {emp.uid}
-                                  </p>
-                                  {emp.serviceSector && (
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                      <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                        💼 {emp.serviceSector}
-                                      </span>
-                                      {emp.isOnline && (
-                                        (emp.isFree ?? true) ? (
-                                          <span className="text-[8px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded uppercase">
-                                            ⏱️ AVAILABLE
-                                          </span>
-                                        ) : (
-                                          <span className="text-[8px] font-black bg-amber-500/15 text-amber-650 dark:text-amber-500 px-1.5 py-0.5 rounded uppercase animate-bounce">
-                                            🚨 BUSY
-                                          </span>
-                                        )
-                                      )}
-                                    </div>
-                                  )}
-                                  <span className="text-[8px] font-black bg-gray-50 dark:bg-white/5 px-1 rounded uppercase tracking-tight text-gray-400">
-                                    {emp.id}
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-4 px-3">
-                              <p className="font-extrabold font-sans">
-                                {emp.phone}
-                              </p>
-                              {emp.email && (
-                                <p className="text-[10px] text-gray-400 mb-1">
-                                  {emp.email}
-                                </p>
-                              )}
-                              <p className="text-[10px] font-mono text-indigo-400 font-black">
-                                NID: {emp.nidNumber}
-                              </p>
-                            </td>
-                            <td className="py-4 px-3 text-center">
-                              {emp.nidPhoto ? (
-                                <div className="inline-block relative group">
-                                  <img
-                                    referrerPolicy="no-referrer"
-                                    src={emp.nidPhoto}
-                                    className="w-16 h-10 object-cover rounded-md border border-gray-100 dark:border-white/10 cursor-zoom-in group-hover:brightness-90 transition-all shadow"
-                                    alt="NID"
-                                    onClick={() =>
-                                      window.open(emp.nidPhoto, "_blank")
-                                    }
-                                  />
-                                  <div className="hidden group-hover:flex absolute inset-0 items-center justify-center bg-transparent pointer-events-none">
-                                    <Eye size={10} className="text-white" />
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-gray-400 italic font-sans">
+                      <tbody className="divide-y divide-gray-100 dark:divide-white                        <div>
+                          <label className="block text-[9px] uppercase font-black tracking-widest text-indigo-400 mb-1.5 font-sans">
+                            কর্মীর কাস্টম আইডি / Custom Employee ID (ঐচ্ছিক)
+                          </label>
+                          <input
+                            name="customEmployeeId"
+                            type="text"
+                            placeholder="যেমন: EMP-101 (ফাঁকা রাখলে অটো জেনারেট হবে)"
+                            className="w-full px-4 py-3 bg-gray-55 dark:bg-white/5 border border-gray-150 dark:border-white/10 rounded-2xl text-xs text-gray-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-550 transition-all font-mono"
+                          />
+                        </div>0 italic font-sans font-sans">
                                   ছবি নেই
                                 </span>
                               )}
@@ -13721,7 +14120,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[9px] uppercase font-black tracking-widest text-indigo-400 mb-1.5 font-sans">
+                          <label className="block text-[9px] uppercase font-black tracking-widest text-[#5366f1] mb-1.5 font-sans">
                             কর্মীর কাস্টম আইডি / Custom Employee ID (ঐচ্ছিক)
                           </label>
                           <input
@@ -15635,7 +16034,7 @@ export default function App() {
                                 });
 
                                 // Add code exchange request for admin
-                                await addDoc(collection(db, "coin_requests"), {
+                                await addDoc(collection(db, "coupon_requests"), {
                                   uid: user.uid,
                                   userName: profile?.name || "User",
                                   email: user.email || "",
@@ -16896,14 +17295,231 @@ export default function App() {
         </AnimatePresence>
       </>
 
-      {/* Floating Action / Messenger */}
-      <a
-        href="https://www.facebook.com/profile.php?id=61575319627556"
-        target="_blank"
-        className="fixed bottom-6 right-6 z-40 bg-indigo-600 p-4 rounded-full text-white shadow-2xl hover:scale-110 transition-all flex items-center justify-center"
-      >
-        <Facebook size={24} />
-      </a>
+      {/* Floating Customer Support Live Chat & Social Suite */}
+      <div className="fixed bottom-6 right-6 z-[9990] flex flex-col items-end gap-3 font-sans">
+        {/* Support Drawer/Menu Selection View */}
+        <AnimatePresence>
+          {isSupportMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 15, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 15, scale: 0.95 }}
+              className="w-[280px] bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/10 rounded-2xl shadow-2xl p-4 flex flex-col gap-2.5"
+            >
+              <div className="border-b border-gray-100 dark:border-white/5 pb-2 text-center">
+                <h5 className="text-[10px] font-black text-gray-550 dark:text-gray-300 uppercase tracking-widest">সহযোগিতা ও চ্যাট</h5>
+              </div>
+
+              {/* Option 1: Live Customer Support Chat */}
+              <button
+                onClick={() => {
+                  setIsSupportWidgetOpen(true);
+                  setIsSupportMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-500/10 hover:bg-indigo-100/80 dark:hover:bg-indigo-550/20 text-left transition-all cursor-pointer border border-indigo-100/30 group"
+              >
+                <div className="w-8.5 h-8.5 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <MessageSquare size={16} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900 dark:text-white">লাইভ চ্যাট সাপোর্ট</p>
+                  <p className="text-[9px] text-gray-450 dark:text-gray-400 font-bold mt-0.5">সরাসরি প্রতিনিধির সাথে মেসেজ</p>
+                </div>
+              </button>
+
+              {/* Option 2: Facebook Messenger */}
+              <a
+                href="https://www.facebook.com/profile.php?id=61575319627556"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => {
+                  setIsSupportMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-sky-50/60 dark:bg-sky-500/10 hover:bg-sky-100/80 dark:hover:bg-sky-550/20 text-left transition-all cursor-pointer border border-sky-100/30 group"
+              >
+                <div className="w-8.5 h-8.5 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform border border-transparent">
+                  <Facebook size={16} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900 dark:text-white">ফেইসবুক চ্যাট</p>
+                  <p className="text-[9px] text-gray-450 dark:text-gray-400 font-bold mt-0.5">আমাদের ফেসবুক পেইজ চ্যাট</p>
+                </div>
+              </a>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Support Chat Widget Panel - Made highly compact & sleek */}
+        <AnimatePresence>
+          {isSupportWidgetOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.95 }}
+              className="w-[290px] sm:w-[335px] h-[430px] max-h-[70vh] bg-white dark:bg-[#111827] border border-gray-150 dark:border-white/10 rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col relative"
+            >
+              {/* Header */}
+              <div className="bg-gradient-to-r from-indigo-650 to-indigo-700 text-white p-4 flex items-center justify-between shadow-md shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => {
+                      setIsSupportWidgetOpen(false);
+                      setIsSupportMenuOpen(true);
+                    }}
+                    className="p-1.5 hover:bg-white/10 rounded-lg text-xs font-bold cursor-pointer transition-all shrink-0"
+                    title="ব্যাকে যান"
+                  >
+                    ←
+                  </button>
+                  <div>
+                    <h4 className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <span>💬</span> লাইভ সাপোর্ট চ্যাট
+                    </h4>
+                    <p className="text-[9px] text-white/80 font-bold">অনলাইন প্রতিনিধির সাথে সরাসরি চ্যাট</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsSupportWidgetOpen(false)}
+                  className="p-1 bg-white/10 hover:bg-white/25 rounded-md text-xs font-bold transition-all cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+
+              {/* Chat Panel Thread Body */}
+              <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 dark:bg-[#0b121f]">
+                {/* Check if user or guest is active */}
+                {!(user?.uid || guestSession?.uid) ? (
+                  /* Guest Registration form */
+                  <form onSubmit={startGuestSupportChat} className="h-full flex flex-col justify-center space-y-3">
+                    <div className="text-center space-y-1">
+                      <p className="text-xs font-black text-gray-900 dark:text-white">চ্যাট শুরু করুন 🚀</p>
+                      <p className="text-[10px] text-gray-400 font-bold leading-relaxed">আমাদের প্রতিনিধির সাথে চ্যাট শুরু করতে নিচের তথ্য দিন।</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-black uppercase tracking-wider text-indigo-650 dark:text-indigo-400">আপনার নাম <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        required
+                        value={guestNameInput}
+                        onChange={(e) => setGuestNameInput(e.target.value)}
+                        placeholder="উদাঃ মোঃ এনামুল ইসলাম"
+                        className="w-full px-3 py-2 text-[11px] rounded-lg bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 outline-none font-bold text-gray-800 dark:text-white focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[8px] font-black uppercase tracking-wider text-indigo-650 dark:text-indigo-400">মোবাইল নাম্বার</label>
+                      <input
+                        type="tel"
+                        value={guestPhoneInput}
+                        onChange={(e) => setGuestPhoneInput(e.target.value)}
+                        placeholder="উদাঃ 017xxxxxxxx"
+                        className="w-full px-3 py-2 text-[11px] rounded-lg bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 outline-none font-bold text-gray-800 dark:text-white focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow transition-all cursor-pointer active:scale-95"
+                    >
+                      চ্যাট শুরু করুন 👉
+                    </button>
+
+                    <div className="text-center pt-1">
+                      <span className="text-[9px] text-gray-405 font-bold">
+                        অথবা একাউন্ট থাকলে{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSupportWidgetOpen(false);
+                            setAuthModal({ ...authModal, isOpen: true, tab: "login" });
+                          }}
+                          className="text-indigo-500 underline font-black ml-0.5 cursor-pointer"
+                        >
+                          লগইন করুন
+                        </button>
+                      </span>
+                    </div>
+                  </form>
+                ) : (
+                  /* Live chat message thread list loop */
+                  <div className="space-y-2 h-full flex flex-col justify-between">
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                      {customerSupportMessages.length === 0 ? (
+                        <div className="text-center py-10 text-gray-400 text-[11px] font-bold leading-relaxed">
+                          👋 হ্যালো! আমাদের সাপোর্ট চ্যাটে কোনো প্রশ্ন বা সহযোগিতা চাইলে বার্তা টাইপ করুন।
+                        </div>
+                      ) : (
+                        customerSupportMessages.map((m) => {
+                          const isRep = m.senderRole === "admin" || m.senderRole === "staff" || m.senderRole === "employee";
+                          const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+                          return (
+                             <div key={m.id} className={`flex items-start gap-1 p-0.5 ${isRep ? 'justify-start' : 'justify-end'}`}>
+                               <div className={`max-w-[85%] rounded-xl px-3 py-2.5 shadow-xs ${
+                                 isRep 
+                                   ? 'bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/5 text-gray-800 dark:text-gray-150 rounded-tl-none' 
+                                   : 'bg-indigo-600 text-white rounded-tr-none'
+                               }`}>
+                                 <div className="flex items-center gap-2 justify-between mb-0.5 opacity-60 text-[7px] font-black uppercase">
+                                   <span>{isRep ? `প্রতিনিধি (${m.senderName})` : "আমি"}</span>
+                                   <span>{timeStr}</span>
+                                 </div>
+                                 <p className="text-[11px] font-bold font-sans leading-relaxed break-words text-left">{m.text}</p>
+                               </div>
+                             </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Chat Input typed bar inside panel */}
+              {(user?.uid || guestSession?.uid) && (
+                <form onSubmit={sendCustomerSupportMessage} className="p-3 bg-white dark:bg-slate-900 border-t border-gray-150 dark:border-white/5 flex gap-1.5 shrink-0">
+                  <input
+                    type="text"
+                    required
+                    value={customerChatMessage}
+                    onChange={(e) => setCustomerChatMessage(e.target.value)}
+                    placeholder="আপনার বার্তাটি এখানে লিখুন..."
+                    className="flex-1 px-3 py-2 bg-gray-50 dark:bg-slate-950 border border-gray-150 dark:border-white/10 text-[11px] rounded-lg font-bold text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    className="p-2.5 bg-indigo-600 hover:bg-indigo-750 text-white rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
+                  >
+                    <Send size={12} />
+                  </button>
+                </form>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Floating Master Support Chat Bubble */}
+        <button
+          onClick={() => {
+            if (isSupportWidgetOpen) {
+              setIsSupportWidgetOpen(false);
+              setIsSupportMenuOpen(false);
+            } else {
+              setIsSupportMenuOpen((v) => !v);
+            }
+          }}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white p-3.5 sm:p-4 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center cursor-pointer relative"
+          title="মেসেঞ্জার ও সাপোর্ট"
+        >
+          {isSupportWidgetOpen || isSupportMenuOpen ? <X size={20} /> : <MessageSquare size={20} />}
+          {/* Soft badge indicating open support alerts */}
+          {supportRooms.some(r => r.customerUid === (user?.uid || guestSession?.uid) && r.unreadCount > 0) && (
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 pointer-events-none animate-ping" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }
