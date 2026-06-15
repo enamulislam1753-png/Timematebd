@@ -898,6 +898,32 @@ export default function App() {
   }>({ isOpen: false, order: null });
   const [paymentTxId, setPaymentTxId] = useState("");
 
+  // Load latest order details for payment modal to prevent out-of-sync price and number
+  useEffect(() => {
+    if (paymentModal.isOpen && paymentModal.order?.id) {
+      const fetchLatestOrder = async () => {
+        try {
+          const snap = await getDoc(doc(db, "orders", paymentModal.order.id));
+          if (snap.exists()) {
+            const data = snap.data();
+            setPaymentModal((prev) => {
+              if (prev.order?.id === snap.id) {
+                return {
+                  ...prev,
+                  order: { id: snap.id, ...data } as any,
+                };
+              }
+              return prev;
+            });
+          }
+        } catch (err) {
+          console.error("Error fetching latest order for payment:", err);
+        }
+      };
+      fetchLatestOrder();
+    }
+  }, [paymentModal.isOpen, paymentModal.order?.id]);
+
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     message: string;
@@ -2210,6 +2236,7 @@ export default function App() {
     weeklyParticipants: [],
     monthlyMinOrders: 3,
     weeklyMinOrders: 1,
+    enabled: true,
   });
 
   // Live Sync Lottery State from Firestore
@@ -2267,6 +2294,7 @@ export default function App() {
             weeklyParticipants: [],
             monthlyMinOrders: 3,
             weeklyMinOrders: 1,
+            enabled: true,
           };
           setDoc(doc(db, "lotteries", "state"), initialState)
             .then(() => setLotteryState(initialState))
@@ -3122,8 +3150,14 @@ export default function App() {
 
     let unsubCoins: (() => void) | undefined;
     let unsubTickets: (() => void) | undefined;
-    if (isAdminView) {
-      unsubCoins = onSnapshot(collection(db, "coin_requests"), (snapshot) => {
+
+    const coinsQuery = (isAdminView || profile?.role === "employee" || profile?.role === "admin")
+      ? query(collection(db, "coin_requests"))
+      : query(collection(db, "coin_requests"), where("uid", "==", user.uid));
+
+    unsubCoins = onSnapshot(
+      coinsQuery,
+      (snapshot) => {
         const cr: any[] = [];
         snapshot.forEach((doc) => cr.push({ id: doc.id, ...doc.data() }));
         cr.sort((x, y) => {
@@ -3132,8 +3166,13 @@ export default function App() {
           return timeY - timeX;
         });
         setCoinRequests(cr);
-      });
+      },
+      (err) => {
+        console.warn("Firestore coin requests listen warning:", err);
+      }
+    );
 
+    if (isAdminView) {
       unsubTickets = onSnapshot(collection(db, "tickets"), (snapshot) => {
         const tk: any[] = [];
         snapshot.forEach((doc) => tk.push({ id: doc.id, ...doc.data() }));
@@ -4754,12 +4793,15 @@ export default function App() {
 
   const AnnouncementSlideshow = ({ items }: { items: any[] }) => {
     const [index, setIndex] = useState(0);
+    const [isVisible, setIsVisible] = useState(() => {
+      return localStorage.getItem("hideAnnouncements") !== "true";
+    });
 
     // Track actual content changes using a serialized representation
     const itemsKey = items.map((it) => it.id || it.text || "").join(":");
 
     useEffect(() => {
-      if (items.length <= 1) {
+      if (!isVisible || items.length <= 1) {
         setIndex(0);
         return;
       }
@@ -4767,9 +4809,9 @@ export default function App() {
         setIndex((prev) => (prev + 1) % items.length);
       }, 8000); // Wait 8 seconds before looping to the next item
       return () => clearInterval(interval);
-    }, [itemsKey, items.length]);
+    }, [itemsKey, items.length, isVisible]);
 
-    if (!items || items.length === 0) return null;
+    if (!isVisible || !items || items.length === 0) return null;
 
     const currentItem = items[index];
 
@@ -4782,27 +4824,40 @@ export default function App() {
     };
 
     return (
-      <div className="relative w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden min-h-[16rem] group">
+      <div className="relative w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white rounded-2xl border border-white/10 shadow-lg overflow-hidden min-h-[6.5rem] sm:min-h-[8.5rem] group transition-all duration-300">
         {/* Decorative ambient lights */}
-        <div className="absolute top-0 left-0 w-48 h-48 bg-purple-500/15 rounded-full blur-[60px] pointer-events-none"></div>
-        <div className="absolute bottom-0 right-0 w-48 h-48 bg-indigo-500/15 rounded-full blur-[60px] pointer-events-none"></div>
+        <div className="absolute top-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-[40px] pointer-events-none"></div>
+        <div className="absolute bottom-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-[40px] pointer-events-none"></div>
+
+        {/* Cancel/Dismiss button */}
+        <button
+          onClick={() => {
+            setIsVisible(false);
+            localStorage.setItem("hideAnnouncements", "true");
+            addToast(trans("ঘোষণা সেকশনটি বন্ধ করা হয়েছে", "Announcement section dismissed"), "success");
+          }}
+          className="absolute top-2.5 right-2.5 p-1.5 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-all z-30 cursor-pointer"
+          title={trans("ক্যান্সেল করুন", "Dismiss")}
+        >
+          <X size={13} />
+        </button>
 
         <AnimatePresence mode="wait">
           <motion.div
             key={index}
-            initial={{ opacity: 0, x: 100 }}
+            initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -100 }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className="grid grid-cols-1 md:grid-cols-12 gap-6 p-6 md:p-8 items-center min-h-[16rem]"
+            exit={{ opacity: 0, x: -50 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="grid grid-cols-1 md:grid-cols-12 gap-4 p-4 sm:p-5 items-center min-h-[6.5rem] sm:min-h-[8.5rem]"
           >
             {/* Left/Content side */}
             <div
-              className={`space-y-4 md:col-span-8 flex flex-col justify-center ${currentItem.image ? "md:col-span-7" : "md:col-span-12"}`}
+              className={`space-y-1.5 md:col-span-8 flex flex-col justify-center ${currentItem.image ? "md:col-span-8" : "md:col-span-12"} pr-4 sm:pr-6`}
             >
               {currentItem.createdAt && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-indigo-300/60 font-bold">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] text-indigo-300/50 font-bold">
                     {new Date(currentItem.createdAt).toLocaleDateString(
                       language === "BN" ? "bn-BD" : "en-US",
                     )}
@@ -4810,26 +4865,26 @@ export default function App() {
                 </div>
               )}
 
-              <h2 className="text-xl md:text-2xl font-black italic tracking-tight text-white line-clamp-2">
+              <h2 className="text-xs sm:text-sm md:text-base font-extrabold tracking-tight text-white line-clamp-2 pr-4 sm:pr-8">
                 {trans(currentItem.title || currentItem.text || "নতুন ঘোষণা!")}
               </h2>
 
               {currentItem.title && currentItem.text && (
-                <p className="text-xs text-indigo-100/80 leading-relaxed font-semibold">
+                <p className="text-[10px] sm:text-xs text-indigo-100/70 leading-normal font-semibold line-clamp-2">
                   {trans(currentItem.text)}
                 </p>
               )}
 
               {currentItem.url && (
-                <div className="pt-2">
+                <div className="pt-1">
                   <a
                     href={currentItem.url}
                     target="_blank"
                     rel="referrer noopener"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 text-indigo-950 text-xs font-black uppercase tracking-widest rounded-2xl hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-amber-500/10"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-500 text-indigo-950 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-md"
                   >
                     {trans("বিস্তারিত দেখুন", "View Details")}{" "}
-                    <ChevronRight size={14} />
+                    <ChevronRight size={12} />
                   </a>
                 </div>
               )}
@@ -4837,11 +4892,11 @@ export default function App() {
 
             {/* Right/Image side */}
             {currentItem.image && (
-              <div className="md:col-span-5 flex justify-center items-center h-48 md:h-full max-h-[14rem] overflow-hidden rounded-3xl border border-white/5 shadow-xl relative group-hover:scale-[1.02] transition-transform duration-500">
+              <div className="md:col-span-4 flex justify-center items-center h-20 sm:h-24 md:h-full max-h-[5.5rem] sm:max-h-[7rem] overflow-hidden rounded-lg border border-white/5 shadow-md relative group-hover:scale-[1.02] transition-transform duration-500">
                 <img
                   src={currentItem.image}
                   alt={currentItem.title || "Ad Image"}
-                  className="w-full h-full object-cover rounded-3xl"
+                  className="w-full h-full object-cover rounded-lg"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -4855,26 +4910,26 @@ export default function App() {
             <button
               onClick={handlePrev}
               type="button"
-              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-2xl p-3 border border-white/10 hover:border-white/20 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-2 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
             >
-              <ChevronLeft size={16} />
+              <ChevronLeft size={14} />
             </button>
             <button
               onClick={handleNext}
               type="button"
-              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-2xl p-3 border border-white/10 hover:border-white/20 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-2 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
             >
-              <ChevronRight size={16} />
+              <ChevronRight size={14} />
             </button>
 
             {/* Pagination dots */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20">
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20">
               {items.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => setIndex(i)}
-                  className={`w-2.5 h-1.5 rounded-full transition-all duration-300 ${i === index ? "w-6 bg-indigo-500" : "bg-white/20 hover:bg-white/40"}`}
+                  className={`w-1.5 h-1 rounded-full transition-all duration-350 ${i === index ? "w-4 bg-indigo-500" : "bg-white/20 hover:bg-white/45"}`}
                 />
               ))}
             </div>
@@ -5244,19 +5299,26 @@ export default function App() {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-6 left-6 z-[1500] max-w-sm bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-2xl p-4 rounded-2xl flex items-center gap-3"
+            className="fixed bottom-6 left-6 z-[1500] max-w-[290px] bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-2xl p-3 pr-7 rounded-2xl flex items-center gap-2.5 relative"
           >
+            <button
+              onClick={() => setShowSocialProof(false)}
+              className="absolute top-2 right-2 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
+              title="Cancel"
+            >
+              <X size={12} />
+            </button>
             <div className="relative flex-shrink-0">
-              <span className="flex h-3 w-3 absolute -top-1 -right-1">
+              <span className="flex h-2.5 w-2.5 absolute -top-1 -right-1">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
               </span>
-              <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-lg">
+              <div className="w-8 h-8 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-sm">
                 👥
               </div>
             </div>
             <div className="text-left">
-              <p className="text-[11px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
+              <p className="text-[10px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
                 {trans(
                   [
                     "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
@@ -5267,7 +5329,7 @@ export default function App() {
                   ][socialProofIndex]
                 )}
               </p>
-              <p className="text-[9px] text-emerald-500 font-extrabold uppercase tracking-widest mt-0.5">
+              <p className="text-[8px] text-emerald-500 font-extrabold uppercase tracking-widest mt-0.5">
                 Verified Booking
               </p>
             </div>
@@ -5681,46 +5743,45 @@ export default function App() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="bg-gradient-to-r from-teal-500 via-indigo-600 to-indigo-700 text-white relative z-[51] font-sans border-b border-white/10 overflow-hidden shadow-md"
+            className="bg-gradient-to-r from-[#0d9488] via-[#4f46e5] to-[#4338ca] text-white relative z-[51] font-sans border-b border-white/10 overflow-hidden shadow-md"
           >
-            <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 shadow-inner">
-                  <Smartphone className="w-4 h-4 text-emerald-300 animate-bounce" />
+            <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 shadow-inner">
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-300 animate-bounce" />
                 </div>
                 <div>
-                  <p className="text-xs sm:text-[13px] font-bold tracking-normal leading-tight">
+                  <p className="text-[11px] sm:text-xs font-extrabold tracking-normal leading-tight">
                     {trans(
-                      "TimeMate BD এর প্রফেশনাল অ্যান্ড্রয়েড অ্যাপ ডাউনলোড করুন!",
-                      "Download TimeMate BD's official Android Application!",
+                      "TimeMate BD এর অফিশিয়াল অ্যাপ!",
+                      "TimeMate BD Official App!",
                     )}
                   </p>
-                  <p className="text-[10px] text-white/70 font-semibold leading-normal mt-0.5">
+                  <p className="text-[9px] sm:text-[10px] text-white/80 font-medium leading-none mt-0.5">
                     {trans(
-                      "সেরা অভিজ্ঞতা পেতে এবং রিয়েল-টাইম লাইভ ট্রেডিং করতে আজই ইন্সটল করুন।",
-                      "Install our optimized mobile app package (APK) for the ultimate experience.",
+                      "সেরা লাইভ অভিজ্ঞতার জন্য অ্যান্ড্রয়েড অ্যাপ ডাউনলোড করুন।",
+                      "Install our optimized mobile package (APK) for the best live experience.",
                     )}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 xs:self-stretch sm:self-auto justify-center shrink-0">
                 <button
-                  type="button"
-                  onClick={handleApkDownload}
-                  className="px-4 py-1.5 bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 text-[11px] font-black uppercase tracking-wider rounded-xl transition-all hover:brightness-110 active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  {trans("ডাউনলোড করুন", "Download App")}
-                </button>
-                <button
                   onClick={() => {
                     setShowApkBanner(false);
                     localStorage.setItem("hideApkBanner", "true");
                   }}
-                  className="p-1.5 hover:bg-white/10 rounded-lg text-white/80 hover:text-white transition-colors cursor-pointer"
-                  title={trans("বন্ধ করুন", "Dismiss")}
+                  className="px-3 py-1 bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-white text-[10px] sm:text-[11px] font-bold rounded-xl cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  {trans("বাতিল করুন", "Cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApkDownload}
+                  className="px-3.5 py-1 bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 text-[10px] sm:text-[11px] font-black uppercase tracking-wider rounded-xl transition-all hover:brightness-110 active:scale-95 shadow-md flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3 h-3" />
+                  {trans("ডাউনলোড", "Download")}
                 </button>
               </div>
             </div>
@@ -13979,7 +14040,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="text-sm divide-y divide-gray-50 dark:divide-white/5">
-                        {coupons.map((c) => (
+                        {coupons.filter(c => c && c.code && !/[\u0600-\u06FF]/.test(c.code)).map((c) => (
                           <tr
                             key={c.id}
                             className="hover:bg-gray-50 dark:hover:bg-white/5 transition-all"
@@ -15154,147 +15215,156 @@ export default function App() {
             </div>
           )}
         </AnimatePresence>
-|
+
         <AnimatePresence>
-          {paymentModal.isOpen && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                onClick={() => setPaymentModal({ isOpen: false, order: null })}
-              />
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-white dark:bg-[#0f172a] rounded-3xl p-8 w-full max-w-md relative z-10 shadow-2xl border border-gray-200 dark:border-white/10"
-              >
-                <div className="text-center mb-8">
-                  <div className="w-16 h-16 rounded-2xl bg-amber-500 flex items-center justify-center mx-auto mb-4 text-white shadow-xl">
-                    <CreditCard size={32} />
-                  </div>
-                  <h2 className="text-2xl font-black">পেমেন্ট মেথড</h2>
-                  <p className="text-gray-500 text-sm mt-1">
-                    পেমেন্ট সম্পন্ন করে অর্ডার নিশ্চিত করুন
-                  </p>
-                </div>
-                <div className="space-y-5">
-                  <div className="p-5 bg-gray-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/10 flex flex-col gap-2">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
-                      মোট টাকা
+          {paymentModal.isOpen && (() => {
+            const liveOrder = orders.find((o) => o.id === paymentModal.order?.id) || paymentModal.order;
+            if (!liveOrder) return null;
+            return (
+              <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                  onClick={() => setPaymentModal({ isOpen: false, order: null })}
+                />
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white dark:bg-[#0f172a] rounded-2xl p-5 w-full max-w-sm relative z-10 shadow-2xl border border-gray-150 dark:border-white/10"
+                >
+                  {/* Close Tab Top-Right */}
+                  <button
+                    onClick={() => setPaymentModal({ isOpen: false, order: null })}
+                    className="absolute right-4 top-4 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer"
+                    title="বাতিল করুন"
+                  >
+                    <X size={16} />
+                  </button>
+
+                  <div className="text-center mb-4 mt-2">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center mx-auto mb-2 text-white shadow-md">
+                      <CreditCard size={22} />
+                    </div>
+                    <h2 className="text-lg font-extrabold font-sans text-gray-900 dark:text-white">পেমেন্ট মেথড</h2>
+                    <p className="text-gray-400 text-[11px] mt-0.5 font-sans font-medium">
+                      পেমেন্ট সম্পন্ন করে অর্ডার নিশ্চিত করুন
                     </p>
-                    {paymentModal.order?.id &&
-                    appliedOrderCoupons[paymentModal.order.id] ? (
-                      <div>
-                        <p className="text-sm font-bold text-gray-400 line-through">
-                          ৳{paymentModal.order?.charge}
-                        </p>
-                        <p className="text-3xl font-black text-emerald-600">
-                          ৳
-                          {
-                            appliedOrderCoupons[paymentModal.order.id]
-                              .finalPrice
-                          }
-                        </p>
-                        <div className="mt-2 p-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg flex items-center justify-between">
-                          <span>
-                            কুপন কোড:{" "}
-                            {
-                              appliedOrderCoupons[paymentModal.order.id].coupon
-                                .code
-                            }
-                          </span>
-                          <button
-                            onClick={() =>
-                              removeAppliedCoupon(paymentModal.order.id)
-                            }
-                            className="text-red-500 hover:underline"
-                          >
-                            বাতিল
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-3xl font-black text-indigo-600">
-                          ৳{paymentModal.order?.charge}
-                        </p>
-                        <div className="mt-3 flex gap-2">
-                          <input
-                            id={`coupon-input-${paymentModal.order?.id}`}
-                            placeholder="কুপন কোড (যেমন: TIME15)"
-                            defaultValue={
-                              paymentModal.order?.id
-                                ? orderCouponInputs[paymentModal.order.id] || ""
-                                : ""
-                            }
-                            className="flex-1 px-3 py-2 bg-white dark:bg-slate-950 border border-gray-100 dark:border-white/10 rounded-xl text-xs font-bold outline-none uppercase font-mono text-gray-900 dark:text-white"
-                          />
-                          <button
-                            onClick={() => {
-                              if (paymentModal.order?.id) {
-                                checkAndApplyCoupon(
-                                  paymentModal.order.id,
-                                  paymentModal.order?.charge || 0,
-                                );
-                              }
-                            }}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold font-sans hover:bg-indigo-700 active:scale-95 transition-all text-white/95"
-                          >
-                            প্রয়োগ করুন
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">
-                      পেমেন্ট নম্বর
-                    </label>
-                    <div className="flex items-center justify-between p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
-                      <span className="font-black text-indigo-700 dark:text-indigo-300">
-                        {paymentModal.order?.paymentNumber}
-                      </span>
-                      <span className="px-3 py-1 bg-indigo-700 text-white rounded-lg text-[8px] font-black uppercase">
-                        {paymentModal.order?.paymentMethod} Personal
-                      </span>
+
+                  <div className="space-y-3.5">
+                    <div className="p-3.5 bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/10 flex flex-col gap-1">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider font-sans">
+                        মোট টাকা (Charge Amount)
+                      </p>
+                      {liveOrder?.id && appliedOrderCoupons[liveOrder.id] ? (
+                        <div>
+                          <p className="text-xs font-bold text-gray-400 line-through">
+                            ৳{liveOrder?.charge || 0}
+                          </p>
+                          <p className="text-2xl font-black text-emerald-600">
+                            ৳{appliedOrderCoupons[liveOrder.id].finalPrice}
+                          </p>
+                          <div className="mt-1.5 p-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg flex items-center justify-between">
+                            <span>
+                              কুপন কোড: {appliedOrderCoupons[liveOrder.id].coupon.code}
+                            </span>
+                            <button
+                              onClick={() => removeAppliedCoupon(liveOrder.id)}
+                              className="text-red-500 hover:underline"
+                            >
+                              বাতিল
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                            ৳{liveOrder?.charge || 0}
+                          </p>
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              id={`coupon-input-${liveOrder?.id}`}
+                              placeholder="কুপন কোড (যেমন: TIME15)"
+                              defaultValue={liveOrder?.id ? orderCouponInputs[liveOrder.id] || "" : ""}
+                              className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-950 border border-gray-150 dark:border-white/10 rounded-lg text-[10px] font-bold outline-none uppercase font-mono text-gray-900 dark:text-white"
+                            />
+                            <button
+                              onClick={() => {
+                                if (liveOrder?.id) {
+                                  checkAndApplyCoupon(
+                                    liveOrder.id,
+                                    liveOrder?.charge || 0,
+                                  );
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold font-sans active:scale-95 transition-all text-white/95"
+                            >
+                              প্রয়োগ
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-gray-400 tracking-wider font-sans">
+                        পেমেন্ট নম্বর (Send Money)
+                      </label>
+                      <div className="flex items-center justify-between p-3 bg-indigo-500/5 dark:bg-indigo-950/10 rounded-xl border border-indigo-150 dark:border-indigo-950/40">
+                        <span className="font-extrabold text-[#5366f1] dark:text-indigo-400 font-mono text-sm">
+                          {liveOrder?.paymentNumber || "01XXXXXXXXX"}
+                        </span>
+                        <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase font-mono">
+                          {liveOrder?.paymentMethod || "bKash"} Personal
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2.5">
+                      <input
+                        id="payment-modal-txid"
+                        placeholder="ট্রানজেকশন আইডি (TxID)"
+                        defaultValue={paymentTxId || ""}
+                        className="w-full px-4 py-2.5 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono text-xs text-center"
+                      />
+                      
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setPaymentModal({ isOpen: false, order: null })}
+                          className="flex-1 py-2.5 bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-350 font-bold rounded-xl text-xs transition-all active:scale-[0.98] font-sans hover:bg-gray-200 dark:hover:bg-white/10"
+                        >
+                          বাতিল
+                        </button>
+                        <button
+                          onClick={submitUserPayment}
+                          className="flex-[2] py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black rounded-xl text-xs shadow-md hover:brightness-105 transition-all active:scale-[0.98] font-sans"
+                        >
+                          Confirm Payment
+                        </button>
+                      </div>
+
+                      {profile?.timePoints !== undefined && (
+                        <div className="pt-2 border-t border-gray-100 dark:border-white/5 font-sans">
+                          <div className="bg-amber-500/5 border border-amber-500/10 p-2.5 rounded-xl">
+                            <p className="text-center text-[10px] text-amber-700 dark:text-amber-400 font-extrabold flex items-center justify-center gap-1 mb-1 uppercase tracking-wide">
+                              <Coins size={12} className="animate-bounce" /> 
+                              কয়েন ডিডাকশন রুলস্
+                            </p>
+                            <p className="text-[9px] text-gray-500 dark:text-gray-400 text-center leading-relaxed font-semibold">
+                              আপনার ওয়ালেটে ওয়ালেট ব্যালেন্স: <span className="text-amber-600 dark:text-amber-400 font-black">{profile.timePoints}</span> কয়েন। কুপন এক্সচেঞ্জ করে ছাড় নিন।
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="grid gap-4">
-                    <input
-                      id="payment-modal-txid"
-                      placeholder="ট্রানজেকশন আইডি"
-                      defaultValue={paymentTxId || ""}
-                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono"
-                    />
-                    <button
-                      onClick={submitUserPayment}
-                      className="w-full py-5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black rounded-2xl shadow-xl transition-all active:scale-[0.98]"
-                    >
-                      Confirm Payment
-                    </button>
-
-                    {profile?.timePoints !== undefined && (
-                      <div className="pt-3 border-t border-gray-100 dark:border-white/10 space-y-3 font-sans">
-                        <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
-                          <p className="text-center text-xs text-amber-700 dark:text-amber-400 font-extrabold flex items-center justify-center gap-1.5 mb-1.5 uppercase tracking-wide">
-                            <Coins size={14} className="animate-bounce" /> 
-                            কয়েন এক্সচেঞ্জ করে ছাড় নিন!
-                          </p>
-                          <p className="text-[10px] text-gray-500 text-center leading-relaxed font-semibold">
-                            আপনার ওয়ালেটে মোট <span className="text-amber-600 dark:text-amber-400 font-black">{profile.timePoints}</span> টি টাইম কয়েন রয়েছে। 
-                            আপনি কয়েন সেল বা এক্সচেঞ্জ করে ডিসকাউন্ট কুপন কোড পেতে পারেন। সেই কুপন কোডটি উপরে ব্যবহার করলেই পেমেন্টে নগদ ডিসকাউন্ট যোগ হবে!
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
+                </motion.div>
+              </div>
+            );
+          })()}
         </AnimatePresence>
 
         {/* Mystery Box Claim Modal */}
@@ -16127,7 +16197,7 @@ export default function App() {
                                 });
 
                                 // Add code exchange request for admin
-                                await addDoc(collection(db, "coupon_requests"), {
+                                const requestObj = {
                                   uid: user.uid,
                                   userName: profile?.name || "User",
                                   email: user.email || "",
@@ -16137,7 +16207,9 @@ export default function App() {
                                   paymentNumber: "N/A",
                                   status: "নতুন",
                                   timestamp: new Date().toISOString(),
-                                });
+                                };
+                                await addDoc(collection(db, "coupon_requests"), requestObj);
+                                await addDoc(collection(db, "coin_requests"), requestObj);
 
                                 addToast(
                                   `কুপন এক্সচেঞ্জ রিকোয়েস্ট জমা হয়েছে! এডমিন অ্যাপ্রুভ করার পর আপনার কুপন কোড কোডটি নোটিফিকেশনে পাবেন।`,
