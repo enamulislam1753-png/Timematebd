@@ -174,10 +174,30 @@ service cloud.firestore {
     }
 
     match /coin_requests/{requestId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || isAdmin() || isStaff());
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
       allow create: if isSignedIn() && !isBanned();
-      allow update: if isAdmin() || isStaff();
+      allow update: if isAdmin() || isStaff() || isEmployee();
       allow delete: if isAdmin() || isStaff();
+    }
+
+    match /coupon_requests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow create: if isSignedIn() && !isBanned() && incoming().uid == request.auth.uid;
+      allow update: if isAdmin() || isStaff() || isEmployee();
+      allow delete: if isAdmin() || isStaff();
+    }
+
+    match /support_rooms/{roomId} {
+      allow read: if isSignedIn() && (roomId == request.auth.uid || resource.data.customerUid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
+      allow update: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || resource.data.customerUid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow delete: if isAdmin() || isStaff();
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (roomId == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+        allow create: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+        allow update, delete: if isAdmin() || isStaff();
+      }
     }
 
     match /lotteries/{docId} {

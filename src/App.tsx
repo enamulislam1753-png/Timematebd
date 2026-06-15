@@ -1254,6 +1254,15 @@ export default function App() {
     isBirthdayGiftEnabled: true,
     birthdayGiftPoints: 500,
   });
+  const [paymentSettings, setPaymentSettings] = useState<{
+    bKash: string;
+    Nagad: string;
+    Rocket: string;
+  }>({
+    bKash: "01700000000",
+    Nagad: "01900000000",
+    Rocket: "01500000000",
+  });
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [coinRequests, setCoinRequests] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
@@ -2883,11 +2892,29 @@ export default function App() {
       },
     );
 
+    const unsubPaymentSettings = onSnapshot(
+      doc(db, "system", "payment_settings"),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setPaymentSettings({
+            bKash: data.bKash || "01700000000",
+            Nagad: data.Nagad || "01900000000",
+            Rocket: data.Rocket || "01500000000",
+          });
+        }
+      },
+      (err) => {
+        console.log("No custom system payment settings found, using defaults");
+      },
+    );
+
     return () => {
       unsubReviews();
       unsubAnnouncements();
       unsubServices();
       unsubRewards();
+      unsubPaymentSettings();
     };
   }, []);
 
@@ -10172,18 +10199,33 @@ export default function App() {
                                 <div className="flex justify-end gap-2">
                                   <button
                                     onClick={() => {
-                                      const chargeInput =
-                                        document.getElementById(
-                                          `charge-${o.id}`,
-                                        ) as HTMLInputElement;
-                                      const methodSelect =
-                                        document.getElementById(
-                                          `method-${o.id}`,
-                                        ) as HTMLSelectElement;
-                                      const numberInput =
-                                        document.getElementById(
-                                          `number-${o.id}`,
-                                        ) as HTMLInputElement;
+                                      const getActiveElement = (ids: string[]) => {
+                                        for (const id of ids) {
+                                          const el = document.getElementById(id);
+                                          if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+                                            return el;
+                                          }
+                                        }
+                                        return document.getElementById(ids[0]);
+                                      };
+
+                                      const chargeInput = getActiveElement([
+                                        `charge-${o.id}`,
+                                        `charge-mobile-${o.id}`,
+                                        `charge-mobile-tab-${o.id}`,
+                                      ]) as HTMLInputElement;
+
+                                      const methodSelect = getActiveElement([
+                                        `method-${o.id}`,
+                                        `method-mobile-${o.id}`,
+                                        `method-mobile-tab-${o.id}`,
+                                      ]) as HTMLSelectElement;
+
+                                      const numberInput = getActiveElement([
+                                        `number-${o.id}`,
+                                        `number-mobile-${o.id}`,
+                                        `number-mobile-tab-${o.id}`,
+                                      ]) as HTMLInputElement;
 
                                       const charge =
                                         parseInt(chargeInput?.value) || 0;
@@ -10504,9 +10546,33 @@ export default function App() {
                           <div className="flex flex-col gap-2 border-t border-gray-100 dark:border-white/5 pt-3">
                             <button
                               onClick={() => {
-                                const chargeInput = (document.getElementById(`charge-${o.id}`) || document.getElementById(`charge-mobile-${o.id}`)) as HTMLInputElement;
-                                const methodSelect = (document.getElementById(`method-${o.id}`) || document.getElementById(`method-mobile-${o.id}`)) as HTMLSelectElement;
-                                const numberInput = (document.getElementById(`number-${o.id}`) || document.getElementById(`number-mobile-${o.id}`)) as HTMLInputElement;
+                                const getActiveElement = (ids: string[]) => {
+                                  for (const id of ids) {
+                                    const el = document.getElementById(id);
+                                    if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+                                      return el;
+                                    }
+                                  }
+                                  return document.getElementById(ids[0]);
+                                };
+
+                                const chargeInput = getActiveElement([
+                                  `charge-mobile-${o.id}`,
+                                  `charge-${o.id}`,
+                                  `charge-mobile-tab-${o.id}`,
+                                ]) as HTMLInputElement;
+
+                                const methodSelect = getActiveElement([
+                                  `method-mobile-${o.id}`,
+                                  `method-${o.id}`,
+                                  `method-mobile-tab-${o.id}`,
+                                ]) as HTMLSelectElement;
+
+                                const numberInput = getActiveElement([
+                                  `number-mobile-${o.id}`,
+                                  `number-${o.id}`,
+                                  `number-mobile-tab-${o.id}`,
+                                ]) as HTMLInputElement;
 
                                 const charge = parseInt(chargeInput?.value) || 0;
                                 const method = methodSelect?.value || "bKash";
@@ -11170,18 +11236,33 @@ export default function App() {
                                 <div className="flex justify-end gap-2">
                                   <button
                                     onClick={() => {
-                                      const chargeInput =
-                                        document.getElementById(
-                                          `charge-${o.id}`,
-                                        ) as HTMLInputElement;
-                                      const methodSelect =
-                                        document.getElementById(
-                                          `method-${o.id}`,
-                                        ) as HTMLSelectElement;
-                                      const numberInput =
-                                        document.getElementById(
-                                          `number-${o.id}`,
-                                        ) as HTMLInputElement;
+                                      const getActiveElement = (ids: string[]) => {
+                                        for (const id of ids) {
+                                          const el = document.getElementById(id);
+                                          if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+                                            return el;
+                                          }
+                                        }
+                                        return document.getElementById(ids[0]);
+                                      };
+
+                                      const chargeInput = getActiveElement([
+                                        `charge-${o.id}`,
+                                        `charge-mobile-${o.id}`,
+                                        `charge-mobile-tab-${o.id}`,
+                                      ]) as HTMLInputElement;
+
+                                      const methodSelect = getActiveElement([
+                                        `method-${o.id}`,
+                                        `method-mobile-${o.id}`,
+                                        `method-mobile-tab-${o.id}`,
+                                      ]) as HTMLSelectElement;
+
+                                      const numberInput = getActiveElement([
+                                        `number-${o.id}`,
+                                        `number-mobile-${o.id}`,
+                                        `number-mobile-tab-${o.id}`,
+                                      ]) as HTMLInputElement;
 
                                       const charge =
                                         parseInt(chargeInput?.value) || 0;
@@ -11498,9 +11579,33 @@ export default function App() {
                           <div className="flex flex-col gap-2 border-t border-gray-100 dark:border-white/5 pt-3">
                             <button
                               onClick={() => {
-                                const chargeInput = (document.getElementById(`charge-${o.id}`) || document.getElementById(`charge-mobile-tab-${o.id}`)) as HTMLInputElement;
-                                const methodSelect = (document.getElementById(`method-${o.id}`) || document.getElementById(`method-mobile-tab-${o.id}`)) as HTMLSelectElement;
-                                const numberInput = (document.getElementById(`number-${o.id}`) || document.getElementById(`number-mobile-tab-${o.id}`)) as HTMLInputElement;
+                                const getActiveElement = (ids: string[]) => {
+                                  for (const id of ids) {
+                                    const el = document.getElementById(id);
+                                    if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+                                      return el;
+                                    }
+                                  }
+                                  return document.getElementById(ids[0]);
+                                };
+
+                                const chargeInput = getActiveElement([
+                                  `charge-mobile-tab-${o.id}`,
+                                  `charge-${o.id}`,
+                                  `charge-mobile-${o.id}`,
+                                ]) as HTMLInputElement;
+
+                                const methodSelect = getActiveElement([
+                                  `method-mobile-tab-${o.id}`,
+                                  `method-${o.id}`,
+                                  `method-mobile-${o.id}`,
+                                ]) as HTMLSelectElement;
+
+                                const numberInput = getActiveElement([
+                                  `number-mobile-tab-${o.id}`,
+                                  `number-${o.id}`,
+                                  `number-mobile-${o.id}`,
+                                ]) as HTMLInputElement;
 
                                 const charge = parseInt(chargeInput?.value) || 0;
                                 const method = methodSelect?.value || "bKash";
@@ -14363,6 +14468,92 @@ export default function App() {
                           </button>
                         </form>
                       </div>
+
+                      {/* Universal Payment Numbers Setup Panel */}
+                      <div className="bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-200/40 rounded-[2rem] p-5 space-y-3 mt-4">
+                        <h4 className="text-xs font-black text-indigo-900 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                          💳 সার্বজনীন পেমেন্ট নম্বর সেটিংস (MFS)
+                        </h4>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 font-sans leading-relaxed">
+                          কোনো নির্দিষ্ট অর্ডারে ব্যতিক্রমী নম্বর দেওয়া না হলে, ইউজারদের পেমেন্ট পেজে এই ডিফল্ট বিকাশ/নগদ/রকেট নম্বরগুলো স্বয়ংক্রিয়ভাবে প্রদর্শিত হবে।
+                        </p>
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            const target = e.target as HTMLFormElement;
+                            const bkashVal = (target.elements.namedItem("globalBkash") as HTMLInputElement)?.value?.trim() || "";
+                            const nagadVal = (target.elements.namedItem("globalNagad") as HTMLInputElement)?.value?.trim() || "";
+                            const rocketVal = (target.elements.namedItem("globalRocket") as HTMLInputElement)?.value?.trim() || "";
+
+                            if (!bkashVal || !nagadVal || !rocketVal) {
+                              addToast("সকল নম্বর প্রদান করা আবশ্যক।", "error");
+                              return;
+                            }
+
+                            try {
+                              await setDoc(doc(db, "system", "payment_settings"), {
+                                bKash: bkashVal,
+                                Nagad: nagadVal,
+                                Rocket: rocketVal,
+                              });
+                              addToast("সার্বজনীন পেমেন্ট নম্বর সফলভাবে সেভ হয়েছে! 🎉", "success");
+                            } catch (err) {
+                              console.error(err);
+                              addToast("পেমেন্ট নম্বর সেভ করতে ব্যর্থতা।", "error");
+                            }
+                          }}
+                          className="space-y-2.5 font-sans"
+                        >
+                          <div className="space-y-1">
+                            <label className="text-[9px] text-gray-450 dark:text-gray-450 font-bold block uppercase">
+                              বিকাশ পার্সোনাল নম্বর
+                            </label>
+                            <input
+                              name="globalBkash"
+                              type="text"
+                              defaultValue={paymentSettings.bKash || ""}
+                              placeholder="বিকাশ নম্বর দিন"
+                              required
+                              className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-indigo-100 dark:border-white/10 rounded-xl text-xs text-gray-950 dark:text-white font-bold outline-none font-mono"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[9px] text-gray-450 dark:text-gray-450 font-bold block uppercase">
+                              নগদ পার্সোনাল নম্বর
+                            </label>
+                            <input
+                              name="globalNagad"
+                              type="text"
+                              defaultValue={paymentSettings.Nagad || ""}
+                              placeholder="নগদ নম্বর দিন"
+                              required
+                              className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-indigo-100 dark:border-white/10 rounded-xl text-xs text-gray-950 dark:text-white font-bold outline-none font-mono"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[9px] text-gray-450 dark:text-gray-450 font-bold block uppercase">
+                              রকেট পার্সোনাল নম্বর
+                            </label>
+                            <input
+                              name="globalRocket"
+                              type="text"
+                              defaultValue={paymentSettings.Rocket || ""}
+                              placeholder="রকেট নম্বর দিন"
+                              required
+                              className="w-full px-3 py-1.5 bg-white dark:bg-slate-950 border border-indigo-100 dark:border-white/10 rounded-xl text-xs text-gray-950 dark:text-white font-bold outline-none font-mono"
+                            />
+                          </div>
+                          
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-md cursor-pointer transition-all active:scale-95 text-center"
+                          >
+                            পেমেন্ট নম্বর সেভ করুন 💾
+                          </button>
+                        </form>
+                      </div>
                     </div>
 
                     {/* Directory Listing / Existing Accounts */}
@@ -15315,7 +15506,7 @@ export default function App() {
                       </label>
                       <div className="flex items-center justify-between p-3 bg-indigo-500/5 dark:bg-indigo-950/10 rounded-xl border border-indigo-150 dark:border-indigo-950/40">
                         <span className="font-extrabold text-[#5366f1] dark:text-indigo-400 font-mono text-sm">
-                          {liveOrder?.paymentNumber || "01XXXXXXXXX"}
+                          {liveOrder?.paymentNumber || paymentSettings[(liveOrder?.paymentMethod || "bKash") as "bKash" | "Nagad" | "Rocket"] || "01XXXXXXXXX"}
                         </span>
                         <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase font-mono">
                           {liveOrder?.paymentMethod || "bKash"} Personal

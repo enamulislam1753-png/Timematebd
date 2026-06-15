@@ -155,6 +155,17 @@
       },
       "required": ["isMysteryBoxEnabled", "isBirthdayGiftEnabled", "birthdayGiftPoints"]
     },
+    "SystemPaymentSettings": {
+      "title": "SystemPaymentSettings",
+      "description": "Default admin mobile payment settings for the app",
+      "type": "object",
+      "properties": {
+        "bKash": { "type": "string" },
+        "Nagad": { "type": "string" },
+        "Rocket": { "type": "string" }
+      },
+      "required": ["bKash", "Nagad", "Rocket"]
+    },
     "Service": {
       "title": "Service",
       "description": "Dynamically added service category",
@@ -183,6 +194,51 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["fullName", "phone", "nidNumber"]
+    },
+    "CouponRequest": {
+      "title": "CouponRequest",
+      "description": "A user's exchange request for coin to coupon",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "coins": { "type": "number" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "userName", "status", "timestamp"]
+    },
+    "SupportRoom": {
+      "title": "SupportRoom",
+      "description": "A support chat session with a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerUid": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "lastMessageText": { "type": "string" },
+        "lastMessageTime": { "type": "string", "format": "date-time" },
+        "lastSender": { "type": "string", "enum": ["user", "admin", "system"] },
+        "unreadCount": { "type": "number" }
+      },
+      "required": ["id", "customerUid", "customerName", "lastMessageTime"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "A message in a support chat room",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "sender": { "type": "string", "enum": ["user", "admin", "system"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "sender", "timestamp"]
     }
   },
   "firestore": {
@@ -213,6 +269,18 @@
     "/coin_requests/{requestId}": {
       "schema": "CoinRequest",
       "description": "Coin cash-out requests"
+    },
+    "/coupon_requests/{requestId}": {
+      "schema": "CouponRequest",
+      "description": "Coin coupon-exchange requests"
+    },
+    "/support_rooms/{roomId}": {
+      "schema": "SupportRoom",
+      "description": "Support chat rooms"
+    },
+    "/support_rooms/{roomId}/messages/{messageId}": {
+      "schema": "SupportMessage",
+      "description": "Messages inside support chat rooms"
     },
     "/announcements/{announcementId}": {
       "schema": "Announcement",
