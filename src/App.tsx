@@ -13186,17 +13186,110 @@ export default function App() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-white                        <div>
-                          <label className="block text-[9px] uppercase font-black tracking-widest text-indigo-400 mb-1.5 font-sans">
-                            কর্মীর কাস্টম আইডি / Custom Employee ID (ঐচ্ছিক)
-                          </label>
-                          <input
-                            name="customEmployeeId"
-                            type="text"
-                            placeholder="যেমন: EMP-101 (ফাঁকা রাখলে অটো জেনারেট হবে)"
-                            className="w-full px-4 py-3 bg-gray-55 dark:bg-white/5 border border-gray-150 dark:border-white/10 rounded-2xl text-xs text-gray-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-550 transition-all font-mono"
-                          />
-                        </div>0 italic font-sans font-sans">
+                      <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-xs text-gray-700 dark:text-gray-300">
+                        {(empFilter === "verified"
+                          ? employees.filter((e) => e.status === "অনুমোদিত")
+                          : empFilter === "pending"
+                            ? employees.filter((e) => e.status !== "অনুমোদিত" && e.status !== "বাতিল")
+                            : employees
+                        ).map((emp) => (
+                          <tr
+                            key={emp.id}
+                            className="hover:bg-gray-50/50 dark:hover:bg-white/2 transition-all"
+                          >
+                            <td className="py-4 px-3 font-sans">
+                              <div className="flex items-center gap-3 font-sans">
+                                <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-100 dark:border-white/10 shrink-0">
+                                  {emp.photo ? (
+                                    <img
+                                      referrerPolicy="no-referrer"
+                                      src={emp.photo}
+                                      className="w-full h-full object-cover cursor-zoom-in"
+                                      alt={emp.fullName}
+                                      onClick={() =>
+                                        window.open(emp.photo, "_blank")
+                                      }
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-500">
+                                      <UserIcon size={18} />
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-1.5 font-sans">
+                                    <p className="font-extrabold text-[#0f172a] dark:text-white font-sans">
+                                      {emp.fullName}
+                                    </p>
+                                    {emp.isOnline ? (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded text-[7px] font-black uppercase tracking-wider animate-pulse font-sans">
+                                        <span className="w-1 h-1 rounded-full bg-emerald-500 inline-block" />
+                                        LIVE
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 dark:bg-white/5 text-gray-400 rounded text-[7px] font-black uppercase tracking-tight font-sans">
+                                        OFFLINE
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[9px] text-gray-405 font-mono">
+                                    UID: {emp.uid}
+                                  </p>
+                                  {emp.serviceSector && (
+                                    <div className="mt-1 flex flex-wrap gap-1 font-sans">
+                                      <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-sans">
+                                        💼 {emp.serviceSector}
+                                      </span>
+                                      {emp.isOnline && (
+                                        (emp.isFree ?? true) ? (
+                                          <span className="text-[8px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded uppercase tracking-wider font-sans">
+                                            ⏱️ AVAILABLE
+                                          </span>
+                                        ) : (
+                                          <span className="text-[8px] font-black bg-amber-500/15 text-amber-650 dark:text-amber-500 px-1.5 py-0.5 rounded uppercase tracking-wider animate-bounce font-sans">
+                                            🚨 BUSY
+                                          </span>
+                                        )
+                                      )}
+                                    </div>
+                                  )}
+                                  <span className="text-[8px] font-black bg-gray-50 dark:bg-white/5 px-1.5 py-0.5 rounded text-gray-450 tracking-tight font-sans">
+                                    {emp.id}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-4 px-3 font-sans">
+                              <p className="font-extrabold font-mono">
+                                {emp.phone}
+                              </p>
+                              {emp.email && (
+                                <p className="text-[10px] text-gray-400 font-mono mb-1">
+                                  {emp.email}
+                                </p>
+                              )}
+                              <p className="text-[10px] font-mono text-indigo-400 font-black">
+                                NID: {emp.nidNumber}
+                              </p>
+                            </td>
+                            <td className="py-4 px-3 text-center">
+                              {emp.nidPhoto ? (
+                                <div className="inline-block relative group">
+                                  <img
+                                    referrerPolicy="no-referrer"
+                                    src={emp.nidPhoto}
+                                    className="w-16 h-10 object-cover rounded-md border border-gray-100 dark:border-white/10 cursor-zoom-in group-hover:brightness-90 transition-all shadow"
+                                    alt="NID"
+                                    onClick={() =>
+                                      window.open(emp.nidPhoto, "_blank")
+                                    }
+                                  />
+                                  <div className="hidden group-hover:flex absolute inset-0 items-center justify-center bg-transparent pointer-events-none">
+                                    <Eye size={10} className="text-white" />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-gray-450 italic font-sans font-sans">
                                   ছবি নেই
                                 </span>
                               )}
