@@ -2358,43 +2358,63 @@ export default function App() {
 
   // Sounds
   const sendSystemNotification = (title: string, body: string, data?: any) => {
-    if ("Notification" in window && Notification.permission === "granted") {
-      try {
-        const n = new Notification(title, {
-          body,
-          icon: "https://cdn-icons-png.flaticon.com/512/3602/3602145.png",
-        });
-        n.onclick = () => {
-          window.focus();
-          if (data?.orderId) {
-            setActiveSection("admin");
-            setAdminTab("orders");
-            setAdminSearch(data.orderId);
-          }
-          n.close();
-        };
-      } catch (err) {
-        console.warn(
-          "Direct Notification constructor failed, attempting fallback:",
-          err,
-        );
-        // Fallback to Service Worker notification standard
-        if (navigator.serviceWorker) {
-          navigator.serviceWorker.ready
-            .then((registration) => {
-              registration.showNotification(title, {
-                body,
-                icon: "https://cdn-icons-png.flaticon.com/512/3602/3602145.png",
-              });
-            })
-            .catch((swErr) => {
-              console.error(
-                "Service worker notification fallback failed:",
-                swErr,
-              );
-            });
-        }
+    if (!("Notification" in window)) {
+      console.warn("Notifications are not supported in this browser.");
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      // 1. Prioritize Service Worker for mobile notification tray delivery
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.ready
+          .then((registration) => {
+            registration.showNotification(title, {
+              body,
+              icon: "https://cdn-icons-png.flaticon.com/512/3602/3602145.png",
+              badge: "https://cdn-icons-png.flaticon.com/512/3602/3602145.png",
+              vibrate: [200, 100, 200], // Physical vibration feedback on mobile devices
+              tag: data?.id || data?.orderId || "timemate-notification",
+              renotify: true,
+              data: data,
+            } as any);
+          })
+          .catch((swErr) => {
+            console.warn(
+              "Service worker showNotification failed, trying direct fallback:",
+              swErr,
+            );
+            triggerDirectNotification(title, body, data);
+          });
+      } else {
+        triggerDirectNotification(title, body, data);
       }
+    }
+  };
+
+  const triggerDirectNotification = (
+    title: string,
+    body: string,
+    data?: any,
+  ) => {
+    try {
+      const n = new Notification(title, {
+        body,
+        icon: "https://cdn-icons-png.flaticon.com/512/3602/3602145.png",
+      });
+      n.onclick = () => {
+        window.focus();
+        if (data?.orderId) {
+          setActiveSection("admin");
+          setAdminTab("orders");
+          setAdminSearch(data.orderId);
+        }
+        n.close();
+      };
+    } catch (e) {
+      console.warn(
+        "Direct Notification constructor not supported in this context:",
+        e,
+      );
     }
   };
 
@@ -3620,113 +3640,284 @@ export default function App() {
 
       // Try popup login
       try {
-        const cred = await signInWithPopup(auth, provider);
-        const docRef = doc(db, "users", cred.user.uid);
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists()) {
-          const isBootstrapAdmin = await checkIsAdminSecure(
-            cred.user.email,
-            cred.user.uid,
-          );
-          const role = isBootstrapAdmin ? "admin" : "user";
-          await setDoc(docRef, {
-            uid: cred.user.uid,
-            name: cred.user.displayName || "User",
-            phone: "",
-            email: cred.user.email || "",
-            role,
-            createdAt: new Date().toISOString(),
-            timePoints: 100,
-          });
-        }
-        setAuthModal({ ...authModal, isOpen: false });
-        addToast("গুগল লগইন সফল!");
-      } catch (popupErr: any) {
-        console.warn("Popup blocked or failed, falling back to redirect:", popupErr);
-        addToast("রিমোট লগইন রিডাইরেক্ট ব্যবহার করা হচ্ছে...", "success");
+        await signInWithPopup(auth, provider);
+        addToast("গুগল অ্যাকাউন্ট দিয়ে সফলভাবে লগইন করা হয়েছে!", "success");
+      } catch (err: any) {
+        console.warn("Popup blocked or failed, trying redirect:", err);
+        // Fallback to redirect
         await signInWithRedirect(auth, provider);
       }
-    } catch (e: any) {
-      console.error(e);
-      if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
-        addToast(
-          "আপনার Vercel বা লাইভ ডোমেনটি ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার Vercel ডোমেনটি অ্যাড করুন।",
-          "error",
+    } catch (err) {
+      console.error("Google login failed:", err);
+      addToast("গুগল লগইন করতে সমস্যা হয়েছে, আবার চেষ্টা করুন!", "error");
+    }
+  };
+
+  const createCoupon = async (
+    code: string,
+    discount: number,
+    active: boolean,
+    expiryDate: string,
+    isMysteryBox: boolean = false,
+  ) => {
+    if (!isAdmin) {
+      addToast("অনুমতি নেই", "error");
+      return;
+    }
+    try {
+      await addDoc(collection(db, "coupons"), {
+        code,
+        discount,
+        active,
+        expiryDate,
+        isMysteryBox,
+      });
+      addToast("কুপন সফলভাবে তৈরি হয়েছে");
+    } catch (e) {
+      addToast("কুপন তৈরি ব্যর্থ হয়েছে", "error");
+    }
+  };
+
+  const toggleMysteryBoxCoupon = async (id: string, currentVal: boolean) => {
+    if (!isAdmin) {
+      addToast("অনুমতি নেই", "error");
+      return;
+    }
+    try {
+      await updateDoc(doc(db, "coupons", id), { isMysteryBox: !currentVal });
+      addToast("কুপনের মিস্ট্রি বক্স স্ট্যাটড আপডেট হয়েছে!");
+    } catch (e) {
+      addToast("আপডেট ব্যর্থ হয়েছে", "error");
+    }
+  };
+
+  const deleteCoupon = async (id: string) => {
+    if (!isSuperAdmin) {
+      addToast(
+        "অনুমতি নেই - একমাত্র প্রধান এডমিন কোনো কুপন সরিয়ে বা ডিঅ্যাক্টিভেট করতে পারেন।",
+        "error",
+      );
+      return;
+    }
+    try {
+      // Using updateDoc to mark as inactive or deleteDoc
+      // For simplicity, let's just delete
+      await updateDoc(doc(db, "coupons", id), { active: false });
+      addToast("কুপন ডিঅ্যাক্টিভেট করা হয়েছে");
+    } catch (e) {
+      addToast("ব্যর্থ হয়েছে", "error");
+    }
+  };
+
+  const markNotificationRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "notifications", id), { read: true });
+    } catch (e) {}
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const unreadNotifications = notifications.filter((n) => !n.read);
+      if (unreadNotifications.length === 0) return;
+      const promises = unreadNotifications.map((n) =>
+        updateDoc(doc(db, "notifications", n.id), { read: true }),
+      );
+      await Promise.all(promises);
+      addToast("সব নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে");
+    } catch (e) {
+      addToast("ব্যর্থ হয়েছে", "error");
+    }
+  };
+
+  const openMysteryBox = async () => {
+    if (!user) {
+      addToast("মিস্ট্রি বক্স খুলতে দয়া করে প্রথমে লগইন করুন!", "error");
+      setAuthModal({ isOpen: true, mode: "LOGIN" });
+      return;
+    }
+
+    if (rewardsConfig.isMysteryBoxEnabled === false) {
+      addToast(
+        "দুঃখিত! মিস্ট্রি বক্স বর্তমানে এডমিন দ্বারা সাময়িকভাবে বন্ধ রাখা হয়েছে।",
+        "error",
+      );
+      return;
+    }
+
+    const lastClaim = profile?.lastMysteryBoxClaim || 0;
+    const now = Date.now();
+    const COOLDOWN = 12 * 60 * 60 * 1000; // 12-hour claim cooldown for user-friendly flow
+    if (now - lastClaim < COOLDOWN) {
+      const waitTime = Math.ceil(
+        (COOLDOWN - (now - lastClaim)) / (60 * 60 * 1000),
+      );
+      addToast(
+        `আজকের মিস্ট্রি বক্স ইতিমধ্যে খোলা হয়েছে! দয়া করে আরও ${waitTime} ঘণ্টা অপেক্ষা করুন।`,
+        "error",
+      );
+      return;
+    }
+
+    setIsOpeningBox(true);
+    playSuccessSound();
+
+    setTimeout(async () => {
+      try {
+        const mysteryCoupons = coupons.filter(
+          (c) => c.active && c.isMysteryBox,
         );
-      } else {
-        addToast(`গুগল লগইন ব্যর্থ হয়েছে: ${e.message}`, "error");
+        let chosen: any;
+
+        if (mysteryCoupons.length === 0) {
+          // Auto fallback seed
+          chosen = {
+            code: "TIME15",
+            discount: 15,
+            isMysteryBox: true,
+            active: true,
+          };
+          try {
+            await addDoc(collection(db, "coupons"), {
+              code: "TIME15",
+              discount: 15,
+              active: true,
+              isMysteryBox: true,
+              expiryDate: "2026-12-31",
+            });
+          } catch (err) {
+            console.log("Quietly tried adding fallback TIME15 coupon:", err);
+          }
+        } else {
+          chosen =
+            mysteryCoupons[Math.floor(Math.random() * mysteryCoupons.length)];
+        }
+
+        await updateDoc(doc(db, "users", user.uid), {
+          lastMysteryBoxClaim: now,
+        });
+
+        await addDoc(collection(db, "notifications"), {
+          userId: user.uid,
+          title: "🎁 মিস্ট্রি বক্স কুপন জয়!",
+          message: `অভিনন্দন! আপনি মিস্ট্রি বক্স থেকে একটি বিশেষ কুপন পেয়েছেন: ${chosen.code} (${chosen.discount}% ছাড়)`,
+          type: "promo",
+          read: false,
+          timestamp: new Date().toISOString(),
+        });
+
+        setMysteryBoxModal({ isOpen: true, coupon: chosen });
+        addToast("🎁 অভিনন্দন! আপনি একটি বিশেষ কুপন পেয়েছেন! 🎉", "success");
+      } catch (err) {
+        console.error(err);
+        addToast("মিস্ট্রি বক্স খুলতে সমস্যা হয়েছে", "error");
+      } finally {
+        setIsOpeningBox(false);
       }
+    }, 1500);
+  };
+
+  const broadcastMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminMessage.title || !adminMessage.body) {
+      addToast("মেসেজের টাইটেল এবং বডি লিখুন", "error");
+      return;
+    }
+    try {
+      const promises = allUsers.map((u) =>
+        addDoc(collection(db, "notifications"), {
+          userId: u.uid,
+          title: adminMessage.title,
+          message: adminMessage.body,
+          type: "promo",
+          read: false,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      await Promise.all(promises);
+      addToast("মেসেজ সফলভাবে সকলের কাছে পাঠানো হয়েছে");
+      setAdminMessage({ title: "", body: "" });
+    } catch (e) {
+      addToast("মেসেজ পাঠাতে ব্যর্থ হয়েছে", "error");
+    }
+  };
+
+  const assignOrderEmployee = async (orderId: string, employeeId: string) => {
+    if (!isAdmin) {
+      addToast("অনুমতি নেই", "error");
+      return;
+    }
+    try {
+      if (!employeeId) {
+        await updateDoc(doc(db, "orders", orderId), {
+          assignedEmployeeId: "",
+          assignedEmployeeName: "",
+          assignedEmployeePhone: "",
+          assignedEmployeePhoto: "",
+          assignedEmployeeSector: "",
+        });
+        addToast("কর্মী প্রত্যাহার করা হয়েছে");
+        return;
+      }
+
+      const employeeRecord = employees.find((emp) => emp.uid === employeeId);
+      await updateDoc(doc(db, "orders", orderId), {
+        assignedEmployeeId: employeeId,
+        assignedEmployeeName: employeeRecord?.fullName || "কর্মী",
+        assignedEmployeePhone: employeeRecord?.phone || "N/A",
+        assignedEmployeePhoto: employeeRecord?.photo || "",
+        assignedEmployeeSector: employeeRecord?.serviceSector || "",
+      });
+      addToast("কর্মী নিযুক্ত করা হয়েছে");
+
+      createNotification(
+        employeeId,
+        "নতুন অর্ডার দায়িত্ব",
+        `আপনাকে অর্ডার নং ${orderId}-এ নিযুক্ত করা হয়েছে। দয়া করে আপনার কর্মী ড্যাশবোর্ড চেক করুন।`,
+        "order",
+        orderId,
+      );
+    } catch (err) {
+      console.error(err);
+      addToast("কর্মী নিযুক্ত করতে ব্যর্থতা", "error");
     }
   };
 
   const placeOrder = async () => {
-    if (!user) {
-      addToast("অর্ডার করতে দয়া করে রেজিষ্ট্রেশন করুন", "error");
-      setAuthModal({ isOpen: true, mode: "REGISTER" });
+    if (!orderForm.service) {
+      addToast(trans("দয়া করে সার্ভিস নির্বাচন করুন!", "Please select a service!"), "error");
       return;
     }
-
-    // Validation
-    if (!orderForm.service || !orderForm.name || !orderForm.phone) {
-      addToast("সবগুলো ঘর পূরণ করুন", "error");
-      return;
-    }
-
-    // Sub-service validation
-    const hasSubcats = serviceSubCategories[orderForm.service];
-    if (hasSubcats && !orderForm.subservice) {
-      addToast("দয়া করে একটি সাব-বিভাগ সিলেক্ট করুন", "error");
+    if (!orderForm.name || !orderForm.phone || !orderForm.address) {
+      addToast(trans("নাম, মোবাইল এবং ঠিকানা পূরণ করুন!", "Please fill in name, phone and address!"), "error");
       return;
     }
 
     try {
-      const orderId = "TM-" + Math.floor(100000 + Math.random() * 900000);
-      const noteString = ((orderForm.note || "") + " " + (orderForm.service || "") + " " + (orderForm.subservice || "")).toLowerCase();
-      const isRiderWork = noteString.includes("delivery") || noteString.includes("কুরিয়ার") || noteString.includes("কুরিয়ার") || noteString.includes("রাইডার") || noteString.includes("ডেলিভারি") || noteString.includes("খাবার") || noteString.includes("প্যাকেজ") || noteString.includes("পার্সেল") || noteString.includes("বাজার");
-      const suggestedSector = isRiderWork ? "Rider" : "Worker";
-
-      const orderData = {
-        id: orderId,
-        userId: user.uid,
-        type: "Regular",
-        ...orderForm,
-        suggestedSector,
-        status: "নতুন",
-        charge: 0,
-        timestamp: new Date().toISOString(),
-      };
-      await setDoc(doc(db, "orders", orderId), orderData);
-
-      // Award 100 Time Coins automatically and save details to User Profile
-      await updateDoc(doc(db, "users", user.uid), {
+      const orderDoc = await addDoc(collection(db, "orders"), {
+        userId: user?.uid || "guest",
+        userName: profile?.fullName || user?.displayName || orderForm.name || "Guest",
+        type: "Service",
+        service: orderForm.service,
+        subservice: orderForm.subservice || "",
         name: orderForm.name,
         phone: orderForm.phone,
         address: orderForm.address,
-        timePoints: (profile?.timePoints || 0) + 100,
+        date: orderForm.date || new Date().toISOString().split("T")[0],
+        time: orderForm.time || "12:00",
+        note: orderForm.note || "",
+        coupon: orderForm.coupon || "",
+        status: "নতুন",
+        charge: 0,
+        assignedEmployeeId: "",
+        assignedEmployeeName: "",
+        assignedEmployeePhone: "",
+        assignedEmployeePhoto: "",
+        assignedEmployeeSector: "",
+        timestamp: new Date().toISOString(),
       });
 
-      setSuccessModal({ isOpen: true, orderId });
-      playSuccessSound();
-      addToast(
-        "অর্ডার সফলভাবে গ্রহণ করা হয়েছে এবং ১০০ টাইম কয়েন আপনার অ্যাকাউন্টে জমা হয়েছে!",
-      );
-
-      // Admin notification
-      createNotification(
-        "9xG6zcPwytNEOEohAVupu7DLMyT2",
-        "নতুন অর্ডার!",
-        `একটি নতুন সার্ভিস অর্ডার (ID: ${orderId}) এসেছে।`,
-        "system",
-      );
-      // User notification
-      createNotification(
-        user.uid,
-        "অর্ডার কনফার্মড",
-        `আপনার অর্ডার ${orderId} সফলভাবে গ্রহণ করা হয়েছে।`,
-        "order",
-        orderId,
-      );
-
+      addToast(trans("আপনার অর্ডার সফলভাবে বুক করা হয়েছে! 🎉", "Your order has been booked successfully! 🎉"), "success");
+      
       setOrderForm({
         service: "",
         subservice: "",
@@ -3738,162 +3929,116 @@ export default function App() {
         note: "",
         coupon: "",
       });
-    } catch (e) {
-      addToast("অর্ডার ব্যর্থ হয়েছে", "error");
+
+      setSuccessModal({
+        isOpen: true,
+        orderId: orderDoc.id,
+      });
+      playSuccessSound();
+    } catch (err) {
+      console.error("Order placing error:", err);
+      addToast(trans("অর্ডার দিতে সমস্যা হয়েছে, আবার চেষ্টা করুন!", "Order placement failed, please try again!"), "error");
     }
   };
 
   const placeCourierOrder = async () => {
-    if (!user) {
-      addToast("কুরিয়ার বুকিং করতে দয়া করে রেজিষ্ট্রেশন করুন", "error");
-      setAuthModal({ isOpen: true, mode: "REGISTER" });
-      return;
-    }
-    const { sName, sPhone, rName, rPhone, rAddr } = courierForm;
-    if (!sName || !sPhone || !rName || !rPhone || !rAddr) {
-      addToast("সবগুলো ঘর পূরণ করুন", "error");
+    if (!courierForm.sName || !courierForm.sPhone || !courierForm.rName || !courierForm.rPhone || !courierForm.rAddr) {
+      addToast(trans("প্রেরক ও প্রাপকের সম্পূর্ণ তথ্য পূরণ করুন!", "Please fill in sender and receiver information!"), "error");
       return;
     }
 
     try {
-      const orderId = "C-" + Math.floor(100000 + Math.random() * 900000);
-      const charge = courierForm.fromZone === courierForm.toZone ? 200 : 350;
-      const orderData = {
-        id: orderId,
-        userId: user.uid,
+      const chargeAmount = courierForm.fromZone === courierForm.toZone ? 200 : 350;
+      const orderDoc = await addDoc(collection(db, "orders"), {
+        userId: user?.uid || "guest",
+        userName: profile?.fullName || user?.displayName || courierForm.sName || "Guest",
         type: "Courier",
-        ...courierForm,
-        charge,
-        suggestedSector: "Rider",
+        service: `কুরিয়ার বুকিং (${courierForm.pType})`,
+        sName: courierForm.sName,
+        sPhone: courierForm.sPhone,
+        rName: courierForm.rName,
+        rPhone: courierForm.rPhone,
+        rAddr: courierForm.rAddr,
+        fromZone: courierForm.fromZone,
+        toZone: courierForm.toZone,
+        weight: courierForm.weight,
+        pType: courierForm.pType,
+        deliveryType: courierForm.deliveryType,
         status: "নতুন",
-        service: "কুরিয়ার সার্ভিস",
+        charge: chargeAmount,
+        assignedEmployeeId: "",
+        assignedEmployeeName: "",
+        assignedEmployeePhone: "",
+        assignedEmployeePhoto: "",
+        assignedEmployeeSector: "",
         timestamp: new Date().toISOString(),
-      };
-      await setDoc(doc(db, "orders", orderId), orderData);
-
-      // Award 100 Time Coins automatically and save details to User Profile
-      await updateDoc(doc(db, "users", user.uid), {
-        name: courierForm.sName,
-        phone: courierForm.sPhone,
-        address: courierForm.rAddr,
-        timePoints: (profile?.timePoints || 0) + 100,
       });
 
-      setSuccessModal({ isOpen: true, orderId });
+      addToast(trans("কুরিয়ার বুকিং সফলভাবে সম্পন্ন হয়েছে! 🎉", "Courier booking completed successfully! 🎉"), "success");
+      
+      setCourierForm({
+        sName: "",
+        sPhone: "",
+        rName: "",
+        rPhone: "",
+        rAddr: "",
+        fromZone: "ঢাকা",
+        toZone: "ঢাকা",
+        weight: "0.5kg",
+        pType: "ডকুমেন্ট",
+        deliveryType: "রেগুলার",
+      });
+
+      setSuccessModal({
+        isOpen: true,
+        orderId: orderDoc.id,
+      });
       playSuccessSound();
-      addToast(
-        "কুরিয়ার বুকিং সফল এবং ১০০ টাইম কয়েন আপনার অ্যাকাউন্টে জমা হয়েছে!",
-      );
-
-      // Admin notification
-      createNotification(
-        "9xG6zcPwytNEOEohAVupu7DLMyT2",
-        "নতুন কুরিয়ার!",
-        `একটি নতুন কুরিয়ার বুকিং (ID: ${orderId}) এসেছে।`,
-        "system",
-      );
-      // User notification
-      createNotification(
-        user.uid,
-        "বুকিং সফল",
-        `আপনার কুরিয়ার বুকিং ${orderId} সফল হয়েছে।`,
-        "order",
-        orderId,
-      );
-    } catch (e) {
-      addToast("বুকিং ব্যর্থ হয়েছে", "error");
+    } catch (err) {
+      console.error("Courier error:", err);
+      addToast(trans("কুরিয়ার বুকিং দিতে সমস্যা হয়েছে, আবার চেষ্টা করুন!", "Courier placement failed, please try again!"), "error");
     }
   };
 
-  const updateOrderStatus = async (id: string, status: string) => {
+  const updateOrderStatus = async (orderId: string, status: string) => {
     if (!isAdmin) {
       addToast("অনুমতি নেই", "error");
       return;
     }
     try {
-      const orderRef = doc(db, "orders", id);
-      const snap = await getDoc(orderRef);
-      if (snap.exists()) {
-        const orderData = snap.data();
-        await updateDoc(orderRef, { status });
-        addToast("স্ট্যাটাস আপডেট হয়েছে");
-        createNotification(
-          orderData.userId,
-          "অর্ডার আপডেট",
-          `আপনার অর্ডার ${id}-এর বর্তমান অবস্থা: ${status}`,
-          "order",
-          id,
-        );
+      await updateDoc(doc(db, "orders", orderId), { status });
+      addToast(`অর্ডার স্ট্যাটাস "${status}" তে পরিবর্তন করা হয়েছে`);
+      
+      const orderRef = await getDoc(doc(db, "orders", orderId));
+      if (orderRef.exists()) {
+        const oData = orderRef.data();
+        if (oData.userId && oData.userId !== "guest") {
+          createNotification(
+            oData.userId,
+            "অর্ডার স্ট্যাটাস পরিবর্তন",
+            `আপনার অর্ডার নং ${orderId}-এর স্ট্যাটাস পরিবর্তন হয়ে হয়েছে: "${status}"`,
+            "order",
+            orderId,
+          );
+        }
       }
-    } catch (e) {
-      addToast("আপডেট ব্যর্থ হয়েছে", "error");
-    }
-  };
-
-  const deleteOrder = async (id: string, bypassModal: boolean = false) => {
-    const isUserAdminSec = (user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com") || 
-                           (user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2") || 
-                           isAdmin;
-    if (!isUserAdminSec) {
-      addToast("অনুমতি নেই", "error");
-      return;
-    }
-    if (!bypassModal) {
-      setDeleteConfirmId(id);
-      return;
-    }
-    try {
-      await deleteDoc(doc(db, "orders", id));
-      addToast("অর্ডারটি স্থায়ীভাবে মুছে ফেলা হয়েছে!", "success");
-      setDeleteConfirmId(null);
     } catch (err) {
       console.error(err);
-      addToast("অর্ডার ডিলিট করতে ব্যর্থ হয়েছে", "error");
+      addToast("স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে", "error");
     }
   };
 
-  const assignOrderEmployee = async (orderId: string, employeeId: string) => {
-    if (!isAdmin) {
+  const deleteOrder = async (orderId: string, confirmFirst?: boolean) => {
+    if (!isSuperAdmin && !isAdmin) {
       addToast("অনুমতি নেই", "error");
       return;
     }
     try {
-      const orderRef = doc(db, "orders", orderId);
-      if (!employeeId) {
-        await updateDoc(orderRef, {
-          assignedEmployeeId: "",
-          assignedEmployeeName: "",
-          assignedEmployeePhone: "",
-          assignedEmployeePhoto: "",
-          assignedEmployeeSector: "",
-        });
-        addToast("অর্ডারটি কর্মী থেকে মুক্ত করা হয়েছে");
-        return;
-      }
-
-      const emp = employees.find(
-        (e) => e.id === employeeId || e.uid === employeeId,
-      );
-      if (emp) {
-        await updateDoc(orderRef, {
-          assignedEmployeeId: emp.uid,
-          assignedEmployeeName: emp.fullName,
-          assignedEmployeePhone: emp.phone,
-          assignedEmployeePhoto: emp.photo || "",
-          assignedEmployeeSector: emp.serviceSector || "",
-        });
-        addToast(`${emp.fullName}-কে সফলভাবে এই অর্ডারে নিযুক্ত করা হয়েছে!`);
-        createNotification(
-          emp.uid,
-          "নতুন কাজ নিযুক্ত",
-          `আপনাকে অর্ডার নং ${orderId}-এ নিযুক্ত করা হয়েছে। দয়া করে আপনার কর্মী ড্যাশবোর্ড চেক করুন।`,
-          "order",
-          orderId,
-        );
-      }
+      await deleteDoc(doc(db, "orders", orderId));
+      addToast("অর্ডারটি সফলভাবে মুছে ফেলা হয়েছে");
     } catch (err) {
       console.error(err);
-      addToast("কর্মী নিযুক্ত করতে ব্যর্থতা", "error");
+      addToast("মুছে ফেলতে ব্যর্থ হয়েছে", "error");
     }
   };
 
@@ -3933,7 +4078,8 @@ export default function App() {
     paymentMethod: string,
     paymentNumber: string,
   ) => {
-    if (!isAdmin) {
+    const isAllowed = isAdmin || profile?.role === "employee" || profile?.role === "staff";
+    if (!isAllowed) {
       addToast("অনুমতি নেই", "error");
       return;
     }
@@ -4248,194 +4394,6 @@ export default function App() {
     } catch (err) {
       console.error("Trade place failed:", err);
       addToast("ট্রেড লক করতে ব্যর্থ হয়েছে, আবার চেষ্টা করুন!", "error");
-    }
-  };
-
-  const createCoupon = async (
-    code: string,
-    discount: number,
-    active: boolean,
-    expiryDate: string,
-    isMysteryBox: boolean = false,
-  ) => {
-    if (!isAdmin) {
-      addToast("অনুমতি নেই", "error");
-      return;
-    }
-    try {
-      await addDoc(collection(db, "coupons"), {
-        code,
-        discount,
-        active,
-        expiryDate,
-        isMysteryBox,
-      });
-      addToast("কুপন সফলভাবে তৈরি হয়েছে");
-    } catch (e) {
-      addToast("কুপন তৈরি ব্যর্থ হয়েছে", "error");
-    }
-  };
-
-  const toggleMysteryBoxCoupon = async (id: string, currentVal: boolean) => {
-    if (!isAdmin) {
-      addToast("অনুমতি নেই", "error");
-      return;
-    }
-    try {
-      await updateDoc(doc(db, "coupons", id), { isMysteryBox: !currentVal });
-      addToast("কুপনের মিস্ট্রি বক্স স্ট্যাটাস আপডেট হয়েছে!");
-    } catch (e) {
-      addToast("আপডেট ব্যর্থ হয়েছে", "error");
-    }
-  };
-
-  const deleteCoupon = async (id: string) => {
-    if (!isSuperAdmin) {
-      addToast(
-        "অনুমতি নেই - একমাত্র প্রধান এডমিন কোনো কুপন সরিয়ে বা ডিঅ্যাক্টিভেট করতে পারেন।",
-        "error",
-      );
-      return;
-    }
-    try {
-      // Using updateDoc to mark as inactive or deleteDoc
-      // For simplicity, let's just delete
-      await updateDoc(doc(db, "coupons", id), { active: false });
-      addToast("কুপন ডিঅ্যাক্টিভেট করা হয়েছে");
-    } catch (e) {
-      addToast("ব্যর্থ হয়েছে", "error");
-    }
-  };
-
-  const markNotificationRead = async (id: string) => {
-    try {
-      await updateDoc(doc(db, "notifications", id), { read: true });
-    } catch (e) {}
-  };
-
-  const markAllNotificationsAsRead = async () => {
-    try {
-      const unreadNotifications = notifications.filter((n) => !n.read);
-      if (unreadNotifications.length === 0) return;
-      const promises = unreadNotifications.map((n) =>
-        updateDoc(doc(db, "notifications", n.id), { read: true }),
-      );
-      await Promise.all(promises);
-      addToast("সব নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে");
-    } catch (e) {
-      addToast("ব্যর্থ হয়েছে", "error");
-    }
-  };
-
-  const openMysteryBox = async () => {
-    if (!user) {
-      addToast("মিস্ট্রি বক্স খুলতে দয়া করে প্রথমে লগইন করুন!", "error");
-      setAuthModal({ isOpen: true, mode: "LOGIN" });
-      return;
-    }
-
-    if (rewardsConfig.isMysteryBoxEnabled === false) {
-      addToast(
-        "দুঃখিত! মিস্ট্রি বক্স বর্তমানে এডমিন দ্বারা সাময়িকভাবে বন্ধ রাখা হয়েছে।",
-        "error",
-      );
-      return;
-    }
-
-    const lastClaim = profile?.lastMysteryBoxClaim || 0;
-    const now = Date.now();
-    const COOLDOWN = 12 * 60 * 60 * 1000; // 12-hour claim cooldown for user-friendly flow
-    if (now - lastClaim < COOLDOWN) {
-      const waitTime = Math.ceil(
-        (COOLDOWN - (now - lastClaim)) / (60 * 60 * 1000),
-      );
-      addToast(
-        `আজকের মিস্ট্রি বক্স ইতিমধ্যে খোলা হয়েছে! দয়া করে আরও ${waitTime} ঘণ্টা অপেক্ষা করুন।`,
-        "error",
-      );
-      return;
-    }
-
-    setIsOpeningBox(true);
-    playSuccessSound();
-
-    setTimeout(async () => {
-      try {
-        const mysteryCoupons = coupons.filter(
-          (c) => c.active && c.isMysteryBox,
-        );
-        let chosen: any;
-
-        if (mysteryCoupons.length === 0) {
-          // Auto fallback seed
-          chosen = {
-            code: "TIME15",
-            discount: 15,
-            isMysteryBox: true,
-            active: true,
-          };
-          try {
-            await addDoc(collection(db, "coupons"), {
-              code: "TIME15",
-              discount: 15,
-              active: true,
-              isMysteryBox: true,
-              expiryDate: "2026-12-31",
-            });
-          } catch (err) {
-            console.log("Quietly tried adding fallback TIME15 coupon:", err);
-          }
-        } else {
-          chosen =
-            mysteryCoupons[Math.floor(Math.random() * mysteryCoupons.length)];
-        }
-
-        await updateDoc(doc(db, "users", user.uid), {
-          lastMysteryBoxClaim: now,
-        });
-
-        await addDoc(collection(db, "notifications"), {
-          userId: user.uid,
-          title: "🎁 মিস্ট্রি বক্স কুপন জয়!",
-          message: `অভিনন্দন! আপনি মিস্ট্রি বক্স থেকে একটি বিশেষ কুপন পেয়েছেন: ${chosen.code} (${chosen.discount}% ছাড়)`,
-          type: "promo",
-          read: false,
-          timestamp: new Date().toISOString(),
-        });
-
-        setMysteryBoxModal({ isOpen: true, coupon: chosen });
-        addToast("🎁 অভিনন্দন! আপনি একটি বিশেষ কুপন পেয়েছেন! 🎉", "success");
-      } catch (err) {
-        console.error(err);
-        addToast("মিস্ট্রি বক্স খুলতে সমস্যা হয়েছে", "error");
-      } finally {
-        setIsOpeningBox(false);
-      }
-    }, 1500);
-  };
-
-  const broadcastMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminMessage.title || !adminMessage.body) {
-      addToast("মেসেজের টাইটেল এবং বডি লিখুন", "error");
-      return;
-    }
-    try {
-      const promises = allUsers.map((u) =>
-        addDoc(collection(db, "notifications"), {
-          userId: u.uid,
-          title: adminMessage.title,
-          message: adminMessage.body,
-          type: "promo",
-          read: false,
-          timestamp: new Date().toISOString(),
-        }),
-      );
-      await Promise.all(promises);
-      addToast("মেসেজ সফলভাবে সকলের কাছে পাঠানো হয়েছে");
-      setAdminMessage({ title: "", body: "" });
-    } catch (e) {
-      addToast("মেসেজ পাঠাতে ব্যর্থ হয়েছে", "error");
     }
   };
 
@@ -4824,23 +4782,12 @@ export default function App() {
       return localStorage.getItem("hideAnnouncements") !== "true";
     });
 
+    // Touch swiping state
+    const [touchStartX, setTouchStartX] = useState<number | null>(null);
+    const [touchEndX, setTouchEndX] = useState<number | null>(null);
+
     // Track actual content changes using a serialized representation
     const itemsKey = items.map((it) => it.id || it.text || "").join(":");
-
-    useEffect(() => {
-      if (!isVisible || items.length <= 1) {
-        setIndex(0);
-        return;
-      }
-      const interval = setInterval(() => {
-        setIndex((prev) => (prev + 1) % items.length);
-      }, 8000); // Wait 8 seconds before looping to the next item
-      return () => clearInterval(interval);
-    }, [itemsKey, items.length, isVisible]);
-
-    if (!isVisible || !items || items.length === 0) return null;
-
-    const currentItem = items[index];
 
     const handlePrev = () => {
       setIndex((prev) => (prev - 1 + items.length) % items.length);
@@ -4850,11 +4797,88 @@ export default function App() {
       setIndex((prev) => (prev + 1) % items.length);
     };
 
+    // Auto-rotation slides with timer reset upon manual interaction (index changed)
+    useEffect(() => {
+      if (!isVisible || items.length <= 1) {
+        setIndex(0);
+        return;
+      }
+      const interval = setInterval(() => {
+        setIndex((prev) => (prev + 1) % items.length);
+      }, 8000); // Wait 8 seconds before looping to the next item
+      return () => clearInterval(interval);
+    }, [itemsKey, items.length, isVisible, index]);
+
+    // Keyboard navigation support
+    useEffect(() => {
+      if (!isVisible || items.length <= 1) return;
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        // Prevent key listener when typing inside input elements
+        const active = document.activeElement;
+        const isInput = active && (
+          active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.getAttribute("contenteditable") === "true"
+        );
+        if (isInput) return;
+
+        if (e.key === "ArrowLeft") {
+          handlePrev();
+        } else if (e.key === "ArrowRight") {
+          handleNext();
+        }
+      };
+
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }, [items.length, isVisible]);
+
+    if (!isVisible || !items || items.length === 0) return null;
+
+    const currentItem = items[index];
+
+    // Touch gesture event handlers
+    const handleTouchStart = (e: React.TouchEvent) => {
+      if (items.length <= 1) return;
+      setTouchStartX(e.targetTouches[0].clientX);
+      setTouchEndX(null);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+      if (items.length <= 1) return;
+      setTouchEndX(e.targetTouches[0].clientX);
+    };
+
+    const handleTouchEnd = () => {
+      if (items.length <= 1 || touchStartX === null || touchEndX === null) return;
+      const diffX = touchStartX - touchEndX;
+      const minSwipeDistance = 50; // Threshold of minimum distance in pixels
+
+      if (diffX > minSwipeDistance) {
+        // Swiped left -> Next item
+        handleNext();
+      } else if (diffX < -minSwipeDistance) {
+        // Swiped right -> Previous item
+        handlePrev();
+      }
+
+      setTouchStartX(null);
+      setTouchEndX(null);
+    };
+
     return (
-      <div className="relative w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white rounded-2xl border border-white/10 shadow-lg overflow-hidden min-h-[6.5rem] sm:min-h-[8.5rem] group transition-all duration-300">
+      <div 
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="relative w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white rounded-3xl border border-white/10 shadow-xl overflow-hidden min-h-[12.5rem] sm:min-h-[14.5rem] group transition-all duration-300"
+      >
         {/* Decorative ambient lights */}
-        <div className="absolute top-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-[40px] pointer-events-none"></div>
-        <div className="absolute bottom-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-[40px] pointer-events-none"></div>
+        <div className="absolute top-0 left-0 w-48 h-48 bg-purple-500/15 rounded-full blur-[50px] pointer-events-none"></div>
+        <div className="absolute bottom-0 right-0 w-48 h-48 bg-indigo-500/15 rounded-full blur-[50px] pointer-events-none"></div>
 
         {/* Cancel/Dismiss button */}
         <button
@@ -4863,10 +4887,10 @@ export default function App() {
             localStorage.setItem("hideAnnouncements", "true");
             addToast(trans("ঘোষণা সেকশনটি বন্ধ করা হয়েছে", "Announcement section dismissed"), "success");
           }}
-          className="absolute top-2.5 right-2.5 p-1.5 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-all z-30 cursor-pointer"
+          className="absolute top-3.5 right-3.5 p-2 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all z-30 cursor-pointer"
           title={trans("ক্যান্সেল করুন", "Dismiss")}
         >
-          <X size={13} />
+          <X size={15} />
         </button>
 
         <AnimatePresence mode="wait">
@@ -4875,43 +4899,46 @@ export default function App() {
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -50 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="grid grid-cols-1 md:grid-cols-12 gap-4 p-4 sm:p-5 items-center min-h-[6.5rem] sm:min-h-[8.5rem]"
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="grid grid-cols-1 md:grid-cols-12 gap-5 p-5 sm:p-7 items-center min-h-[12.5rem] sm:min-h-[14.5rem]"
           >
             {/* Left/Content side */}
             <div
-              className={`space-y-1.5 md:col-span-8 flex flex-col justify-center ${currentItem.image ? "md:col-span-8" : "md:col-span-12"} pr-4 sm:pr-6`}
+              className={`space-y-3.5 md:col-span-8 flex flex-col justify-center ${currentItem.image ? "md:col-span-8" : "md:col-span-12"} pr-4 sm:pr-6`}
             >
-              {currentItem.createdAt && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-indigo-300/50 font-bold">
-                    {new Date(currentItem.createdAt).toLocaleDateString(
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 bg-indigo-500/20 text-indigo-400 text-[10px] sm:text-xs font-black uppercase tracking-widest rounded-lg border border-indigo-500/25">
+                  🎙️ {trans("লাইভ ঘোষণা", "Live Update")}
+                </span>
+                {currentItem.createdAt && (
+                  <span className="text-[10px] text-indigo-300/60 font-medium">
+                    • {new Date(currentItem.createdAt).toLocaleDateString(
                       language === "BN" ? "bn-BD" : "en-US",
                     )}
                   </span>
-                </div>
-              )}
+                )}
+              </div>
 
-              <h2 className="text-xs sm:text-sm md:text-base font-extrabold tracking-tight text-white line-clamp-2 pr-4 sm:pr-8">
+              <h2 className="text-sm sm:text-lg md:text-xl font-extrabold tracking-tight text-white leading-snug line-clamp-2 pr-4 sm:pr-8">
                 {trans(currentItem.title || currentItem.text || "নতুন ঘোষণা!")}
               </h2>
 
               {currentItem.title && currentItem.text && (
-                <p className="text-[10px] sm:text-xs text-indigo-100/70 leading-normal font-semibold line-clamp-2">
+                <p className="text-xs sm:text-sm text-indigo-100/75 leading-relaxed font-medium line-clamp-3">
                   {trans(currentItem.text)}
                 </p>
               )}
 
               {currentItem.url && (
-                <div className="pt-1">
+                <div className="pt-1.5">
                   <a
                     href={currentItem.url}
                     target="_blank"
                     rel="referrer noopener"
-                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-500 text-indigo-950 text-[10px] sm:text-xs font-black uppercase tracking-wider rounded-lg hover:brightness-110 active:scale-95 transition-all shadow-md"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 text-indigo-950 text-xs font-black uppercase tracking-widest rounded-xl hover:scale-105 active:scale-95 transition-all shadow-md"
                   >
                     {trans("বিস্তারিত দেখুন", "View Details")}{" "}
-                    <ChevronRight size={12} />
+                    <ChevronRight size={14} />
                   </a>
                 </div>
               )}
@@ -4919,12 +4946,13 @@ export default function App() {
 
             {/* Right/Image side */}
             {currentItem.image && (
-              <div className="md:col-span-4 flex justify-center items-center h-20 sm:h-24 md:h-full max-h-[5.5rem] sm:max-h-[7rem] overflow-hidden rounded-lg border border-white/5 shadow-md relative group-hover:scale-[1.02] transition-transform duration-500">
+              <div className="md:col-span-4 flex justify-center items-center h-40 sm:h-48 md:h-full max-h-[11rem] sm:max-h-[13rem] md:max-h-[14rem] overflow-hidden rounded-2xl border border-white/10 shadow-lg relative group-hover:scale-[1.03] transition-transform duration-500 bg-black/45">
                 <img
                   src={currentItem.image}
                   alt={currentItem.title || "Ad Image"}
-                  className="w-full h-full object-cover rounded-lg"
+                  className="w-full h-full object-contain rounded-2xl"
                   referrerPolicy="no-referrer"
+                  loading="lazy"
                 />
               </div>
             )}
@@ -4937,26 +4965,26 @@ export default function App() {
             <button
               onClick={handlePrev}
               type="button"
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-2 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
+              className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-3 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={16} />
             </button>
             <button
               onClick={handleNext}
               type="button"
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-2 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
+              className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/5 hover:bg-white/10 text-white rounded-xl p-3 border border-white/5 hover:border-white/10 hover:scale-105 active:scale-95 transition-all opacity-0 group-hover:opacity-100 z-20 cursor-pointer hidden sm:block"
             >
-              <ChevronRight size={14} />
+              <ChevronRight size={16} />
             </button>
 
             {/* Pagination dots */}
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20">
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20">
               {items.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => setIndex(i)}
-                  className={`w-1.5 h-1 rounded-full transition-all duration-350 ${i === index ? "w-4 bg-indigo-500" : "bg-white/20 hover:bg-white/45"}`}
+                  className={`w-2 h-1.5 rounded-full transition-all duration-350 ${i === index ? "w-5 bg-indigo-500" : "bg-white/20 hover:bg-white/45"}`}
                 />
               ))}
             </div>
@@ -17120,6 +17148,8 @@ export default function App() {
                     order={selectedOrder}
                     language={language}
                     trans={trans}
+                    currentUserId={user?.uid || ""}
+                    userRole={profile?.role || "user"}
                   />
 
                   {/* Real-Time Direct Support Chat for Order */}

@@ -144,13 +144,14 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff() || isEmployee());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isStaff() || isEmployee());
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isStaff() || isEmployee();
       allow create: if isSignedIn() && !isBanned() && isValidOrder(incoming()) && orderId == incoming().id;
+      allow update: if isSignedIn() && !isBanned() && (isStaff() || isEmployee());
       allow update: if isSignedIn() && !isBanned() && (
-        isStaff() || isEmployee() ||
         (incoming().diff(existing()).affectedKeys().hasOnly(['reviewed']) && incoming().reviewed == true) ||
-        (isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
+        (resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
         (
           isOwner(existing().userId) && (
             incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
@@ -174,28 +175,35 @@ service cloud.firestore {
     }
 
     match /coin_requests/{requestId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || isStaff() || isEmployee();
       allow create: if isSignedIn() && !isBanned();
       allow update: if isAdmin() || isStaff() || isEmployee();
       allow delete: if isAdmin() || isStaff();
     }
 
     match /coupon_requests/{requestId} {
-      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow read: if isAdmin() || isStaff() || isEmployee();
       allow create: if isSignedIn() && !isBanned() && incoming().uid == request.auth.uid;
       allow update: if isAdmin() || isStaff() || isEmployee();
       allow delete: if isAdmin() || isStaff();
     }
 
     match /support_rooms/{roomId} {
-      allow read: if isSignedIn() && (roomId == request.auth.uid || resource.data.customerUid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow get: if isSignedIn() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
+      allow list: if isSignedIn() && resource.data.customerUid == request.auth.uid;
+      allow read: if isAdmin() || isStaff() || isEmployee();
       allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
-      allow update: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || resource.data.customerUid == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+      allow update: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
+      allow update: if isAdmin() || isStaff() || isEmployee();
       allow delete: if isAdmin() || isStaff();
 
       match /messages/{messageId} {
-        allow read: if isSignedIn() && (roomId == request.auth.uid || isAdmin() || isStaff() || isEmployee());
-        allow create: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || isAdmin() || isStaff() || isEmployee());
+        allow read: if isSignedIn() && roomId == request.auth.uid;
+        allow read: if isAdmin() || isStaff() || isEmployee();
+        allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
+        allow create: if isSignedIn() && !isBanned() && (isAdmin() || isStaff() || isEmployee());
         allow update, delete: if isAdmin() || isStaff();
       }
     }
@@ -223,19 +231,20 @@ service cloud.firestore {
     }
 
     match /employees/{employeeId} {
-      allow read: if isAdmin() || isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow read: if isAdmin() || isStaff();
       allow create: if isSignedIn() && !isBanned();
-      allow update: if isAdmin() || isStaff() || (isSignedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid);
+      allow update: if isSignedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow update: if isAdmin() || isStaff();
       allow delete: if isAdmin() || isStaff();
     }
 
     match /orders/{orderId}/chats/{messageId} {
       allow read, create: if isSignedIn() && !isBanned() && (
         (exists(/databases/$(database)/documents/orders/$(orderId)) && get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid) ||
-        (exists(/databases/$(database)/documents/orders/$(orderId)) && 'assignedEmployeeId' in get(/databases/$(database)/documents/orders/$(orderId)).data && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedEmployeeId == request.auth.uid) ||
-        isAdmin() ||
-        isStaff()
+        (exists(/databases/$(database)/documents/orders/$(orderId)) && 'assignedEmployeeId' in get(/databases/$(database)/documents/orders/$(orderId)).data && get(/databases/$(database)/documents/orders/$(orderId)).data.assignedEmployeeId == request.auth.uid)
       );
+      allow read, create: if isAdmin() || isStaff();
       allow update, delete: if isAdmin() || isStaff();
     }
   }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { 
   MapPin, 
@@ -12,24 +12,50 @@ import {
   TrendingUp, 
   AlertCircle 
 } from "lucide-react";
+import { APIProvider, Map, AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
+import { db } from "../lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
 
 interface OrderTrackerProps {
   order: any;
   language: "BN" | "EN";
   trans: (bn: string, en: string) => string;
+  currentUserId?: string;
+  userRole?: string;
 }
 
-export default function OrderTracker({ order, language, trans }: OrderTrackerProps) {
-  // Coordinates and state simulation for the courier
-  const [courierLocation, setCourierLocation] = useState({ lat: 23.8103, lng: 90.4125 }); // Dhaka Default
+export default function OrderTracker({ 
+  order, 
+  language, 
+  trans, 
+  currentUserId = "", 
+  userRole = "" 
+}: OrderTrackerProps) {
+  // Google Maps API key extraction matching system guidelines
+  const API_KEY =
+    process.env.GOOGLE_MAPS_PLATFORM_KEY ||
+    (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+    (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+    "";
+  
+  const hasValidKey = Boolean(API_KEY) && API_KEY !== "YOUR_API_KEY";
+
+  // Coordinates and state simulation for when actual GPS coords are unset
+  const [simulatedCourierLocation, setSimulatedCourierLocation] = useState({ lat: 23.8103, lng: 90.4125 }); // Dhaka Default
   const [speed, setSpeed] = useState(0);
   const [eta, setEta] = useState(0); // in minutes
   const [distanceRemaining, setDistanceRemaining] = useState(0); // in km
   const [noiseIndex, setNoiseIndex] = useState(0);
 
+  const [activeWatch, setActiveWatch] = useState<boolean>(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
   const status = order.status || "নতুন";
   const isCancelled = status === "বাতিল";
   const isCompleted = status === "সম্পন্ন";
+
+  // Core base location: Seller Warehouse
+  const WAREHOUSE_COORDS = { lat: 23.8103, lng: 90.4125 };
 
   // Hub definitions along the path
   const hubs = [
@@ -84,7 +110,7 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
       baseEta = 60;
       baseDist = 10.8;
     } else if (status === "প্রক্রিয়াধীন") {
-      baseSpeed = 42; // standard Dhaka traffic velocity
+      baseSpeed = 42; 
       baseEta = 25;
       baseDist = 3.6;
     } else if (status === "সম্পন্ন") {
@@ -98,7 +124,7 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
     setDistanceRemaining(baseDist);
   }, [status]);
 
-  // Jitter coordinates to simulate active live tracking
+  // Jitter coordinates to simulate active live tracking when actual GPS is not active
   useEffect(() => {
     if (isCancelled || isCompleted || status === "নতুন" || status === "মূল্য নির্ধারণ") {
       return;
@@ -117,7 +143,7 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
       const jitterLat = targetLat + (Math.sin(noiseIndex) * 0.0006);
       const jitterLng = targetLng + (Math.cos(noiseIndex) * 0.0006);
       
-      setCourierLocation({ lat: jitterLat, lng: jitterLng });
+      setSimulatedCourierLocation({ lat: jitterLat, lng: jitterLng });
       setNoiseIndex((prev) => prev + 0.3);
 
       // Random speed fluctuation
@@ -133,53 +159,115 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
         if (prev <= 0.2) return 0;
         return parseFloat((prev - 0.01).toFixed(2));
       });
-      setEta((prev) => {
-        if (prev <= 1) return 0;
-        return prev;
-      });
     }, 4000);
 
     return () => clearInterval(interval);
   }, [progress, noiseIndex, isCancelled, isCompleted, status]);
 
-  // Track map SVG definition representing delivery paths
-  const routePoints = [
-    { x: 40, y: 150 },   // Seller Warehouse
-    { x: 120, y: 130 },  // Karwan Bazar
-    { x: 220, y: 180 },  // Tongi Hub
-    { x: 280, y: 100 },  // Local Distribution Agent
-    { x: 360, y: 150 },  // Customer Doorstep
-  ];
+  // GEOLOCATION ENGINE: Live geolocation share for Courier Rider & User Customer
+  useEffect(() => {
+    if (!currentUserId || !order?.id) return;
+    if (isCompleted || isCancelled) return;
 
-  // Map progress (0 to 100) to a coordinate on our simulated vector path
-  const getCourierSVGPosition = () => {
-    const factor = progress / 100;
-    const numSegments = routePoints.length - 1;
-    const segment = Math.min(Math.floor(factor * numSegments), numSegments - 1);
-    const segmentFactor = (factor * numSegments) - segment;
+    const isRider = order.assignedEmployeeId === currentUserId;
+    const isCustomer = order.userId === currentUserId;
 
-    const pStart = routePoints[segment];
-    const pEnd = routePoints[segment + 1];
+    // Auto watch location if the logged in user is either the assigned rider or current customer
+    if (!isRider && !isCustomer) return;
 
-    if (!pStart || !pEnd) return { x: 40, y: 150 };
+    let watchId: number | null = null;
+    setActiveWatch(true);
 
-    const x = pStart.x + (pEnd.x - pStart.x) * segmentFactor;
-    const y = pStart.y + (pEnd.y - pStart.y) * segmentFactor;
+    if ("geolocation" in navigator) {
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setGeoError(null);
 
-    return { x, y };
+          try {
+            const updates: any = {};
+            if (isRider) {
+              updates.riderLat = latitude;
+              updates.riderLng = longitude;
+            } else if (isCustomer) {
+              updates.customerLat = latitude;
+              updates.customerLng = longitude;
+            }
+
+            const prevLat = isRider ? order.riderLat : order.customerLat;
+            const prevLng = isRider ? order.riderLng : order.customerLng;
+            const diff = Math.abs((prevLat || 0) - latitude) + Math.abs((prevLng || 0) - longitude);
+
+            // Throttle database writes to avoid excessive billing
+            if (diff > 0.0001 || !prevLat) {
+              await updateDoc(doc(db, "orders", order.id), updates);
+            }
+          } catch (e) {
+            console.error("Failed to update location inside Firestore:", e);
+          }
+        },
+        (error) => {
+          console.warn("Geolocation watch failed:", error);
+          setGeoError(error.message);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 5000
+        }
+      );
+    } else {
+      setGeoError("Browser does not support Geolocation.");
+    }
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        setActiveWatch(false);
+      }
+    };
+  }, [currentUserId, order?.id, order?.status, order?.assignedEmployeeId, order?.userId, isCompleted, isCancelled]);
+
+  // Explicit Location Trigger as backup manual option
+  const requestManualLocationShare = () => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setGeoError(null);
+          
+          const isRider = order.assignedEmployeeId === currentUserId;
+          const isCustomer = order.userId === currentUserId;
+
+          try {
+            const updates: any = {};
+            if (isRider) {
+              updates.riderLat = latitude;
+              updates.riderLng = longitude;
+            } else if (isCustomer) {
+              updates.customerLat = latitude;
+              updates.customerLng = longitude;
+            }
+            await updateDoc(doc(db, "orders", order.id), updates);
+          } catch (e) {
+            console.error("Manual share update failed:", e);
+          }
+        },
+        (error) => {
+          setGeoError(error.message);
+        }
+      );
+    }
   };
 
-  const courierSVGPos = getCourierSVGPosition();
-
-  // Courier representative profile list
-  const couriers = [
+  // Courier representative profile fallback
+  const courierFallbackProfiles = [
     { name: "শাকিল আহমেদ", phone: "01783-925232", rating: "4.9", vehicle: "TVS Apache" },
     { name: "জাহিদুল ইসলাম", phone: "01944-884321", rating: "4.8", vehicle: "Suzuki Gixxer" },
     { name: "মোঃ ইমরান হোসেন", phone: "01511-925838", rating: "4.9", vehicle: "Hero Splendor" }
   ];
 
-  // Choose courier based on order key
-  const courierHash = (order.id ? order.id.charCodeAt(0) + order.id.charCodeAt(order.id.length - 1) : 0) % couriers.length;
+  const courierHash = (order.id ? order.id.charCodeAt(0) + order.id.charCodeAt(order.id.length - 1) : 0) % courierFallbackProfiles.length;
   const courier = order.assignedEmployeeName
     ? {
         name: order.assignedEmployeeName,
@@ -189,25 +277,41 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
         photo: order.assignedEmployeePhoto || "",
       }
     : {
-        ...couriers[courierHash],
+        ...courierFallbackProfiles[courierHash],
         photo: "",
       };
+
+  // Determine current active marker coordinates
+  const isRiderLive = Boolean(order.riderLat && order.riderLng);
+  const isCustomerLive = Boolean(order.customerLat && order.customerLng);
+
+  const riderCoords = {
+    lat: order.riderLat || simulatedCourierLocation.lat,
+    lng: order.riderLng || simulatedCourierLocation.lng
+  };
+
+  const customerCoords = {
+    lat: order.customerLat || 23.7771, // fallback to standard customer spot coordinate
+    lng: order.customerLng || 90.3994
+  };
+
+  const mapCenterCoords = isRiderLive ? riderCoords : (isCustomerLive ? customerCoords : WAREHOUSE_COORDS);
 
   return (
     <div id="realtime-order-tracking-dashboard" className="bg-slate-50 dark:bg-slate-900/40 rounded-3xl p-6 border border-gray-200/60 dark:border-white/5 space-y-6">
       {/* Upper Tracker Status Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-white/5 pb-5">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-2xl">
+          <div className="p-3 bg-indigo-500/10 text-indigo-500 rounded-2xl animate-pulse">
             <Compass className="animate-spin" size={24} style={{ animationDuration: "12s" }} />
           </div>
           <div>
             <h4 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">
-              {trans("রিয়েল-টাইম ট্র্যাকিং ড্যাশবোর্ড", "Real-Time Tracking Dashboard")}
+              {trans("গুগল ম্যাপ রিয়েল-টাইম ট্র্যাকিং ড্যাশবোর্ড", "Google Maps Real-Time Tracking")}
             </h4>
             <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
-              {trans("লাইভ জিপিএস লোকেশন সচল আছে", "Live GPS Location Beacon Active")}
+              {activeWatch ? trans("লাইভ জিপিএস কো-অর্ডিনেট শেয়ার হচ্ছে", "Live GPS Coordinates Sharing Active") : trans("লাইভ জিপিএস লোকেশন সচল আছে", "Live GPS Location Beacon Active")}
             </span>
           </div>
         </div>
@@ -233,108 +337,120 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
         </div>
       </div>
 
-      {/* Modern High-End Simulated Visual Map */}
-      <div className="relative bg-[#ffffff] dark:bg-[#0b1329] border border-gray-150 dark:border-white/10 rounded-[2rem] overflow-hidden shadow-inner h-64 sm:h-72 flex flex-col justify-between">
-        {/* Dynamic Map Lines Overlay */}
-        <div className="absolute inset-0 opacity-15 pointer-events-none">
-          {/* Simulated grid line */}
-          <div className="w-full h-full bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:16px_16px]"></div>
+      {/* Geolocation Info and Share Buttons if applicable */}
+      {!isCompleted && !isCancelled && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="text-[10px] sm:text-xs font-extrabold text-gray-700 dark:text-slate-300">
+              {order.userId === currentUserId && trans("👤 আপনার লোকেশন কুরিয়ার কর্মী ও এডমিন সরাসরি দেখতে পাচ্ছেন", "👤 Courier & Admin can view your live location")}
+              {order.assignedEmployeeId === currentUserId && trans("🏍️ আপনার রাইডার লোকেশন কাস্টমার ও এডমিন সরাসরি দেখতে পাচ্ছেন", "🏍️ Customer & Admin can view your rider location")}
+              {order.userId !== currentUserId && order.assignedEmployeeId !== currentUserId && trans("🛡️ এডমিন ভিউ লকিং: গ্রাহক ও রাইডারের লাইভ লোকেশন ম্যাপে প্রদর্শিত হচ্ছে", "🛡️ Admin View: Customer & Rider live location shown")}
+            </span>
+          </div>
+          {(order.userId === currentUserId || order.assignedEmployeeId === currentUserId) && (
+            <button
+              onClick={requestManualLocationShare}
+              className="px-3 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap active:scale-95 shadow-md shadow-indigo-500/10 shrink-0"
+            >
+              🔄 {trans("লোকেশন রিফ্রেশ করুন", "Refresh Coordinates")}
+            </button>
+          )}
         </div>
+      )}
 
-        {/* Vector SVG Roadmap */}
-        <div className="absolute inset-0">
-          <svg className="w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="none">
-            {/* Delivery route vector road path */}
-            <path
-              d="M 40 150 Q 80 120, 120 130 T 220 180 T 280 100 T 360 150"
-              fill="none"
-              stroke="#e2e8f0"
-              strokeWidth="6"
-              strokeLinecap="round"
-              className="dark:stroke-slate-800 transition-colors"
-            />
-            {/* Animated active path line */}
-            <path
-              d="M 40 150 Q 80 120, 120 130 T 220 180 T 280 100 T 360 150"
-              fill="none"
-              stroke="url(#gradient-active)"
-              strokeWidth="6"
-              strokeLinecap="round"
-              strokeDasharray="400"
-              strokeDashoffset={400 - (400 * (progress / 100))}
-              className="transition-all duration-1000 ease-out"
-            />
-
-            {/* Gradient fill */}
-            <defs>
-              <linearGradient id="gradient-active" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#818cf8" />
-                <stop offset="100%" stopColor="#4f46e5" />
-              </linearGradient>
-            </defs>
-
-            {/* Hub markers */}
-            {hubs.map((hub, idx) => {
-              const pt = routePoints[idx];
-              const isActive = progress >= hub.percentage;
-              return (
-                <g key={idx} className="cursor-pointer">
-                  {/* Subtle pulsing background for selected next destination hub */}
-                  {isActive && progress < (hubs[idx+1]?.percentage || 101) && (
-                    <circle cx={pt.x} cy={pt.y} r="14" fill="#6366f1" className="opacity-25 animate-ping" />
-                  )}
-                  {/* Primary hub marker */}
-                  <circle
-                    cx={pt.x}
-                    cy={pt.y}
-                    r="6"
-                    fill={isActive ? (isCancelled ? "#ef4444" : "#4f46e5") : "#94a3b8"}
-                    stroke="#ffffff"
-                    strokeWidth="2.5"
-                    className="shadow-md transition-all duration-500"
-                  />
-                </g>
-              );
-            })}
-          </svg>
+      {geoError && (
+        <div className="p-3 bg-rose-500/10 border border-rose-500/15 rounded-2xl flex items-center gap-2">
+          <AlertCircle className="text-rose-500 shrink-0" size={14} />
+          <span className="text-[10px] text-rose-500 font-bold leading-tight">
+            Gps error: {geoError}. {trans("অনুগ্রহ করে আপনার ব্রাউজার লোকেশন পারমিশনটি মঞ্জুর করুন।", "Please authorize your device browser location permissions.")}
+          </span>
         </div>
+      )}
 
-        {/* Live Vector Courier Rider Animated Indicator */}
-        {!isCancelled && (
-          <motion.div
-            style={{
-              position: "absolute",
-              left: `${(courierSVGPos.x / 400) * 100}%`,
-              top: `${(courierSVGPos.y / 300) * 100}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-            animate={{ scale: [0.95, 1.05, 0.95] }}
-            transition={{ repeat: Infinity, duration: 2.2 }}
-            className="z-10 bg-indigo-600 dark:bg-indigo-500 text-white p-2.5 rounded-full shadow-2xl flex items-center justify-center cursor-grabbing group border border-white"
-          >
-            <Truck size={16} className="animate-bounce" style={{ animationDuration: "1s" }} />
-            {/* Tiny live speed badge */}
-            {speed > 0 && (
-              <span className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap bg-indigo-950 font-black text-[8px] uppercase tracking-wider text-indigo-300 px-2 py-1 rounded-md border border-indigo-500/20 shadow-md">
-                ⚡ {speed} km/h
-              </span>
-            )}
-          </motion.div>
+      {/* Google Interactive Map Panel */}
+      <div className="relative bg-[#ffffff] dark:bg-[#0b1329] border border-gray-150 dark:border-white/10 rounded-[2rem] overflow-hidden shadow-inner h-80 sm:h-96 flex flex-col justify-between">
+        {!hasValidKey ? (
+          /* Constitutional Key Splash Box (Rule 1C) */
+          <div className="absolute inset-0 z-30 flex items-center justify-center p-6 bg-slate-900 text-white text-center">
+            <div className="max-w-md space-y-4 font-sans">
+              <div className="w-12 h-12 bg-amber-500/15 text-amber-500 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                <AlertCircle size={24} />
+              </div>
+              <h4 className="text-sm font-black uppercase tracking-wider text-amber-500">
+                Google Maps API Key Required
+              </h4>
+              <p className="text-[11px] text-gray-300 leading-relaxed font-bold">
+                {trans(
+                  "এই লাইভ ম্যাপটি সচল করার জন্য GOOGLE_MAPS_PLATFORM_KEY যোগ করা প্রয়োজন।",
+                  "In order to initialize this live tracking map, please set up your GOOGLE_MAPS_PLATFORM_KEY API key."
+                )}
+              </p>
+              
+              <div className="text-left bg-slate-950/60 p-4 rounded-xl border border-white/5 space-y-1.5 text-[10px] font-bold text-gray-400">
+                <p className="text-white font-extrabold uppercase text-[9px] tracking-wider mb-1">How to setup:</p>
+                <p>1. Open <strong className="text-white">Settings</strong> (⚙️ gear icon, top-right corner)</p>
+                <p>2. Choose <strong className="text-white">Secrets</strong> tab</p>
+                <p>3. Type <code className="text-indigo-400">GOOGLE_MAPS_PLATFORM_KEY</code> as the name</p>
+                <p>4. Input your Google Maps Javascript API key as value & hit enter</p>
+                <p className="text-amber-500/80 mt-2 text-center text-[9px]">The map will automatically refresh without reload!</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Actual High-End Google Maps Panel */
+          <div className="w-full h-full relative">
+            <APIProvider apiKey={API_KEY} version="weekly">
+              <Map
+                center={mapCenterCoords}
+                zoom={13}
+                mapId="timemate_order_tracking"
+                internalUsageAttributionIds={["gmp_mcp_codeassist_v1_aistudio"]}
+                style={{ width: "100%", height: "100%" }}
+              >
+                {/* 1. Warehouse Depot Marker */}
+                <AdvancedMarker position={WAREHOUSE_COORDS} title="ডিপো হাব (Depot Hub)">
+                  <Pin background="#4F46E5" glyphColor="#fff" glyph="🏠" scale={1.2} />
+                </AdvancedMarker>
+
+                {/* 2. Customer Doorstep Marker */}
+                <AdvancedMarker position={customerCoords} title="গ্রাহকের স্থান (Customer Home)">
+                  <Pin background="#10B981" glyphColor="#fff" glyph="👤" scale={1.2} />
+                </AdvancedMarker>
+
+                {/* 3. Courier Rider Live Marker */}
+                <AdvancedMarker position={riderCoords} title="কর্মী / রাইডার (Delivery Rider)">
+                  <Pin background="#F59E0B" glyphColor="#fff" glyph="🏍️" scale={1.2} />
+                </AdvancedMarker>
+              </Map>
+            </APIProvider>
+          </div>
         )}
 
         {/* Labels at different stops overlay */}
-        <div className="absolute bottom-3 left-3 right-3 flex justify-between gap-1 pointer-events-none text-[8px] font-black uppercase tracking-wider text-gray-400 dark:text-gray-500 bg-white/40 dark:bg-slate-950/20 p-2 rounded-xl backdrop-blur-xs">
-          <div>📍 {trans("হাব", "Hub")} 1</div>
-          <div>📍 {trans("ট্রান্সফার", "Transit")}</div>
-          <div>📍 {trans("বন্টন", "Agent")}</div>
-          <div className="text-right">🏁 {trans("ডেলিভারি", "Doorstep")}</div>
+        <div className="z-10 absolute bottom-3 left-3 right-3 flex justify-between gap-1 pointer-events-none text-[8px] font-black uppercase tracking-wider text-gray-500 bg-white/90 dark:bg-slate-950/80 p-2.5 rounded-xl backdrop-blur-md border border-gray-150/10">
+          <div className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+            🏠 {trans("ওয়্যারহাউস ডিপো", "Warehouse")}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            🏍️ {isRiderLive ? trans("কর্মী (লাইভ)", "Courier (GPS)") : trans("কর্মী (সিমুলেটেড)", "Courier (Simulated)")}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            👤 {isCustomerLive ? trans("গ্রাহক (লাইভ)", "Customer (GPS)") : trans("গ্রাহক ঠিকানা", "Customer Base")}
+          </div>
         </div>
 
         {/* Map Header Status Alert */}
-        <div className="absolute top-3 left-3 p-2 bg-white/90 dark:bg-slate-950/80 backdrop-blur-md rounded-xl border border-gray-150 dark:border-white/5 flex items-center gap-2">
+        <div className="z-10 absolute top-3 left-3 p-2 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md rounded-xl border border-gray-150 dark:border-white/5 flex items-center gap-2 shadow-md">
           <Navigation className="text-indigo-500 animate-pulse" size={14} />
           <span className="text-[9px] font-black tracking-tight text-gray-750 dark:text-gray-300 uppercase">
-            {trans("কুরিয়ার কো-অর্ডিনেটস", "Courier Coordinates")}: <span className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">{courierLocation.lat.toFixed(4)}° N, {courierLocation.lng.toFixed(4)}° E</span>
+            {trans("বর্তমান জিপিএস কো-অর্ডিনেট", "Active GPS Coordinates")}: <span className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">{riderCoords.lat.toFixed(4)}° N, {riderCoords.lng.toFixed(4)}° E</span>
           </span>
         </div>
       </div>
@@ -366,7 +482,7 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
               <p className="font-black text-rose-600 dark:text-rose-400 text-xs">
                 {trans("অর্ডারটি বাতিল করা হয়েছে", "Order Cancelled")}
               </p>
-              <p className="text-[10px] font-medium text-gray-500 mt-1">
+              <p className="text-[10px] font-medium text-gray-550 mt-1">
                 {trans("গ্রাহকের অনুরোধে অথবা অন্য কোনো কারণে অর্ডারটি স্থগিত করা হয়েছে।", "The order was cancelled as per customer request or processing reasons.")}
               </p>
             </div>
@@ -395,13 +511,13 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[9px] font-black uppercase tracking-tight text-indigo-500">
+                    <span className="text-[9px] font-black uppercase tracking-tight text-indigo-505">
                       {trans(`ধাপ ${idx+1}`, `Step ${idx+1}`)}
                     </span>
                     {isPast ? (
                       <CheckCircle2 size={13} className="text-emerald-500" />
                     ) : (
-                      <div className="w-3 h-3 rounded-full bg-slate-200 dark:bg-slate-800" />
+                      <div className="w-3 h-3 rounded-full bg-slate-200 dark:bg-slate-850" />
                     )}
                   </div>
                   <h6 className="font-extrabold text-xs text-gray-950 dark:text-gray-100">
@@ -429,7 +545,7 @@ export default function OrderTracker({ order, language, trans }: OrderTrackerPro
               )}
             </div>
             <div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-indigo-500 block">
+              <span className="text-[9px] font-black uppercase tracking-widest text-indigo-505 block">
                 {trans("নিযুক্ত কুরিয়ার রাইডার", "Assigned Delivery Rider")}
               </span>
               <h5 className="font-black text-sm text-gray-900 dark:text-white mt-0.5">
