@@ -78,11 +78,10 @@ service cloud.firestore {
     }
 
     function isValidOrder(data) {
-      return data.keys().hasAll(['id', 'userId', 'type', 'status', 'timestamp']) &&
-             isValidId(data.id) &&
-             data.userId == request.auth.uid &&
-             data.type in ['Regular', 'Courier'] &&
-             data.status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'প্রক্রিয়াধীন', 'সম্পন্ন', 'বাতিল', 'স্প্যাম'] &&
+      return data.keys().hasAll(['userId', 'type', 'status', 'timestamp']) &&
+             data.userId is string &&
+             data.type is string &&
+             data.status is string &&
              data.timestamp is string;
     }
 
@@ -144,21 +143,22 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow read: if isStaff() || isEmployee();
-      allow create: if isSignedIn() && !isBanned() && isValidOrder(incoming()) && orderId == incoming().id;
-      allow update: if isSignedIn() && !isBanned() && (isStaff() || isEmployee());
-      allow update: if isSignedIn() && !isBanned() && (
-        (incoming().diff(existing()).affectedKeys().hasOnly(['reviewed']) && incoming().reviewed == true) ||
-        (resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
-        (
-          isOwner(existing().userId) && (
-            incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
-            incoming().status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'বাতিল']
-          )
-        )
-      );
+      allow get, list: if isStaff() || isEmployee() || 
+                          (isSignedIn() && resource.data.userId == request.auth.uid) || 
+                          (!isSignedIn() && resource.data.userId is string);
+      allow create: if isValidOrder(incoming()) && (!isSignedIn() || !isBanned());
+      allow update: if (isSignedIn() && !isBanned() && (isStaff() || isEmployee())) ||
+                       (!isSignedIn() && incoming().userId is string) ||
+                       (isSignedIn() && !isBanned() && (
+                         (incoming().diff(existing()).affectedKeys().hasOnly(['reviewed']) && incoming().reviewed == true) ||
+                         (resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
+                         (
+                           isOwner(existing().userId) && (
+                             incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
+                             incoming().status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'বাতিল']
+                           )
+                         )
+                       ));
       allow delete: if isAdmin() || isStaff();
     }
 

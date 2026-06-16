@@ -297,6 +297,172 @@ export default function OrderTracker({
 
   const mapCenterCoords = isRiderLive ? riderCoords : (isCustomerLive ? customerCoords : WAREHOUSE_COORDS);
 
+  // Dynamic Leaflet Loader and Controller
+  const [leafletLoaded, setLeafletLoaded] = useState(false);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const leafletMapRef = useRef<any>(null);
+  const markersRef = useRef<{ [key: string]: any }>({});
+
+  useEffect(() => {
+    if (hasValidKey) return; // If Google Maps is active, no need to load Leaflet
+
+    if ((window as any).L) {
+      setLeafletLoaded(true);
+      return;
+    }
+
+    // Load Leaflet CSS only once
+    const linkId = "leaflet-css-cdn";
+    if (!document.getElementById(linkId)) {
+      const link = document.createElement("link");
+      link.id = linkId;
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    // Load Leaflet JS only once
+    const scriptId = "leaflet-js-cdn";
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.async = true;
+      script.onload = () => {
+        setLeafletLoaded(true);
+      };
+      document.body.appendChild(script);
+    } else {
+      const interval = setInterval(() => {
+        if ((window as any).L) {
+          setLeafletLoaded(true);
+          clearInterval(interval);
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [hasValidKey]);
+
+  // Leaflet Map Initialization
+  useEffect(() => {
+    if (!leafletLoaded || !mapContainerRef.current || hasValidKey) return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    if (leafletMapRef.current) {
+      leafletMapRef.current.remove();
+      leafletMapRef.current = null;
+    }
+
+    const mapInstance = L.map(mapContainerRef.current, {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([mapCenterCoords.lat, mapCenterCoords.lng], 13);
+
+    // Highly professional CartoDB Voyager tiles (Foodpanda look!)
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 20,
+      subdomains: "abcd"
+    }).addTo(mapInstance);
+
+    L.control.zoom({ position: "topright" }).addTo(mapInstance);
+    leafletMapRef.current = mapInstance;
+
+    return () => {
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove();
+        leafletMapRef.current = null;
+      }
+    };
+  }, [leafletLoaded, order.id, hasValidKey]);
+
+  // Leaflet Live Marker Movement Updates
+  useEffect(() => {
+    if (!leafletLoaded || !leafletMapRef.current || hasValidKey) return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    const mapInstance = leafletMapRef.current;
+    mapInstance.panTo([mapCenterCoords.lat, mapCenterCoords.lng]);
+
+    // Create premium circular glowing SVG divIcons with real pulse animations (Foodpanda styled)
+    const warehouseIcon = L.divIcon({
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-8 h-8 rounded-full bg-indigo-500/20 animate-ping"></div>
+          <div class="w-10 h-10 rounded-full bg-indigo-600 border-2 border-white shadow-lg flex items-center justify-center text-white text-base">
+            🏠
+          </div>
+        </div>
+      `,
+      className: "custom-leaflet-marker",
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    const customerIcon = L.divIcon({
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-8 h-8 rounded-full bg-emerald-500/20 animate-ping"></div>
+          <div class="w-10 h-10 rounded-full bg-emerald-600 border-2 border-white shadow-lg flex items-center justify-center text-white text-base">
+            👤
+          </div>
+        </div>
+      `,
+      className: "custom-leaflet-marker",
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    const riderIcon = L.divIcon({
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-10 h-10 rounded-full bg-rose-500/30 animate-pulse"></div>
+          <div class="absolute w-12 h-12 rounded-full bg-rose-500/25 animate-ping" style="animation-duration: 2s"></div>
+          <div class="w-11 h-11 rounded-full bg-[#ff2e56] border-2 border-white shadow-lg flex items-center justify-center text-white text-lg">
+            🏍️
+          </div>
+        </div>
+      `,
+      className: "custom-leaflet-marker",
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
+
+    // Remove existing markers if present to refresh correctly
+    if (markersRef.current.warehouse) markersRef.current.warehouse.remove();
+    if (markersRef.current.customer) markersRef.current.customer.remove();
+    if (markersRef.current.rider) markersRef.current.rider.remove();
+    if (markersRef.current.routingLine) markersRef.current.routingLine.remove();
+
+    markersRef.current.warehouse = L.marker([WAREHOUSE_COORDS.lat, WAREHOUSE_COORDS.lng], { icon: warehouseIcon })
+      .addTo(mapInstance)
+      .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Depot Warehouse Hub</strong>`);
+
+    markersRef.current.customer = L.marker([customerCoords.lat, customerCoords.lng], { icon: customerIcon })
+      .addTo(mapInstance)
+      .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Customer Destination</strong>`);
+
+    markersRef.current.rider = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon })
+      .addTo(mapInstance)
+      .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Delivery Partner (Live Coordinates)</strong>`);
+
+    // Draw nice dashed routing line between stations
+    const routePoints = [
+      [WAREHOUSE_COORDS.lat, WAREHOUSE_COORDS.lng],
+      [riderCoords.lat, riderCoords.lng],
+      [customerCoords.lat, customerCoords.lng]
+    ];
+
+    markersRef.current.routingLine = L.polyline(routePoints, {
+      color: "#ff2e56",
+      weight: 4,
+      opacity: 0.75,
+      dashArray: "10, 10"
+    }).addTo(mapInstance);
+
+  }, [leafletLoaded, mapCenterCoords.lat, mapCenterCoords.lng, riderCoords.lat, riderCoords.lng, customerCoords.lat, customerCoords.lng, hasValidKey]);
+
   return (
     <div id="realtime-order-tracking-dashboard" className="bg-slate-50 dark:bg-slate-900/40 rounded-3xl p-6 border border-gray-200/60 dark:border-white/5 space-y-6">
       {/* Upper Tracker Status Header */}
@@ -363,42 +529,27 @@ export default function OrderTracker({
       )}
 
       {geoError && (
-        <div className="p-3 bg-rose-500/10 border border-rose-500/15 rounded-2xl flex items-center gap-2">
-          <AlertCircle className="text-rose-500 shrink-0" size={14} />
-          <span className="text-[10px] text-rose-500 font-bold leading-tight">
-            Gps error: {geoError}. {trans("অনুগ্রহ করে আপনার ব্রাউজার লোকেশন পারমিশনটি মঞ্জুর করুন।", "Please authorize your device browser location permissions.")}
+        <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-2xl flex items-center gap-2">
+          <AlertCircle className="text-rose-500/80 shrink-0" size={14} />
+          <span className="text-[10px] text-rose-500/90 font-bold leading-tight">
+            Gps active. {trans("উত্তম ট্র্যাকিংয়ের জন্য ব্রাউজার লোকেশন অনুমতি অন রাখুন।", "Ensure device location permissions are active for high accuracy tracking.")}
           </span>
         </div>
       )}
 
-      {/* Google Interactive Map Panel */}
+      {/* Interactive Map Panel */}
       <div className="relative bg-[#ffffff] dark:bg-[#0b1329] border border-gray-150 dark:border-white/10 rounded-[2rem] overflow-hidden shadow-inner h-80 sm:h-96 flex flex-col justify-between">
         {!hasValidKey ? (
-          /* Constitutional Key Splash Box (Rule 1C) */
-          <div className="absolute inset-0 z-30 flex items-center justify-center p-6 bg-slate-900 text-white text-center">
-            <div className="max-w-md space-y-4 font-sans">
-              <div className="w-12 h-12 bg-amber-500/15 text-amber-500 rounded-full flex items-center justify-center mx-auto animate-bounce">
-                <AlertCircle size={24} />
+          /* High-Performance Standard Leaflet Map with Real-time GPS synchronization */
+          <div className="w-full h-full relative z-20">
+            {!leafletLoaded ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-950/40 p-4">
+                <Compass className="animate-spin text-indigo-550 mb-2" size={32} />
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400">লাইভ ট্র্যাকিং ম্যাপ লোড হচ্ছে...</span>
               </div>
-              <h4 className="text-sm font-black uppercase tracking-wider text-amber-500">
-                Google Maps API Key Required
-              </h4>
-              <p className="text-[11px] text-gray-300 leading-relaxed font-bold">
-                {trans(
-                  "এই লাইভ ম্যাপটি সচল করার জন্য GOOGLE_MAPS_PLATFORM_KEY যোগ করা প্রয়োজন।",
-                  "In order to initialize this live tracking map, please set up your GOOGLE_MAPS_PLATFORM_KEY API key."
-                )}
-              </p>
-              
-              <div className="text-left bg-slate-950/60 p-4 rounded-xl border border-white/5 space-y-1.5 text-[10px] font-bold text-gray-400">
-                <p className="text-white font-extrabold uppercase text-[9px] tracking-wider mb-1">How to setup:</p>
-                <p>1. Open <strong className="text-white">Settings</strong> (⚙️ gear icon, top-right corner)</p>
-                <p>2. Choose <strong className="text-white">Secrets</strong> tab</p>
-                <p>3. Type <code className="text-indigo-400">GOOGLE_MAPS_PLATFORM_KEY</code> as the name</p>
-                <p>4. Input your Google Maps Javascript API key as value & hit enter</p>
-                <p className="text-amber-500/80 mt-2 text-center text-[9px]">The map will automatically refresh without reload!</p>
-              </div>
-            </div>
+            ) : (
+              <div ref={mapContainerRef} className="w-full h-full relative" />
+            )}
           </div>
         ) : (
           /* Actual High-End Google Maps Panel */

@@ -446,6 +446,8 @@ export default function App() {
   });
   const [activeAdminChats, setActiveAdminChats] = useState<{ [orderId: string]: boolean }>({});
   const [activeEmployeeChats, setActiveEmployeeChats] = useState<{ [orderId: string]: boolean }>({});
+  const [activeEmployeeMaps, setActiveEmployeeMaps] = useState<{ [orderId: string]: boolean }>({});
+  const [activeAdminMaps, setActiveAdminMaps] = useState<{ [orderId: string]: boolean }>({});
 
   useEffect(() => {
     try {
@@ -1297,6 +1299,7 @@ export default function App() {
   const [newAdImageBase64, setNewAdImageBase64] = useState<string>("");
   const [isAdImageProcessing, setIsAdImageProcessing] = useState<boolean>(false);
   const autoOpenedOrdersRef = useRef<string[]>([]);
+  const autoOpenedReviewsRef = useRef<string[]>([]);
 
   useEffect(() => {
     try {
@@ -1330,6 +1333,29 @@ export default function App() {
       setPaymentModal({ isOpen: true, order: pendingPaymentOrder });
       addToast(
         "পেমেন্ট যাচাইয়ের জন্য নতুন রিকোয়েস্ট পাওয়া গেছে! পেমেন্ট ফর্মটি পূরণ করুন। ✨",
+        "success",
+      );
+    }
+  }, [orders, user, profile]);
+
+  useEffect(() => {
+    if (!user) return;
+    const isUserAdmin = isSecureAdminState || profile?.role === "admin";
+    if (isUserAdmin) return;
+
+    const completedUnreviewedOrder = orders.find(
+      (o) =>
+        o.userId === user.uid &&
+        o.status === "সম্পন্ন" &&
+        !o.reviewed &&
+        !autoOpenedReviewsRef.current.includes(o.id),
+    );
+
+    if (completedUnreviewedOrder) {
+      autoOpenedReviewsRef.current.push(completedUnreviewedOrder.id);
+      setRatingModal({ isOpen: true, order: completedUnreviewedOrder });
+      addToast(
+        "আপনার অর্ডার নং " + completedUnreviewedOrder.id + " টি সম্পন্ন হয়েছে! কেমন লাগলো জানাতে রিভিউ দিন। ✨",
         "success",
       );
     }
@@ -1976,6 +2002,57 @@ export default function App() {
     });
   }, [orders]);
   const [coupons, setCoupons] = useState<any[]>([]);
+
+  // Auto apply coupon if saved in order details when payment modal loads
+  useEffect(() => {
+    if (paymentModal.isOpen && paymentModal.order) {
+      const orderId = paymentModal.order.id;
+      const orderCoupon = paymentModal.order.coupon;
+      const orderCharge = paymentModal.order.charge || 0;
+      
+      if (orderCoupon) {
+        setAppliedOrderCoupons((prev) => {
+          if (prev[orderId]) return prev; // already applied, skip
+          
+          const cleanCode = orderCoupon.trim().toUpperCase();
+          const found = coupons.find(
+            (c) => c.code.toUpperCase() === cleanCode && c.active,
+          );
+          if (found) {
+            // Check expiry
+            let isExpired = false;
+            if (found.expiryDate) {
+              const today = new Date().toISOString().split("T")[0];
+              if (found.expiryDate < today) {
+                isExpired = true;
+              }
+            }
+            if (!isExpired) {
+              let discountAmt = 0;
+              if (found.createdByCoins) {
+                discountAmt = found.discount;
+              } else {
+                discountAmt = Math.round((orderCharge * found.discount) / 100);
+              }
+              const finalPrice = Math.max(0, orderCharge - discountAmt);
+              return {
+                ...prev,
+                [orderId]: { coupon: found, finalPrice }
+              };
+            }
+          }
+          return prev;
+        });
+      }
+    }
+  }, [
+    paymentModal.isOpen,
+    paymentModal.order?.id,
+    paymentModal.order?.coupon,
+    paymentModal.order?.charge,
+    coupons.length
+  ]);
+
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpening, setIsOpening] = useState(true);
@@ -2098,7 +2175,7 @@ export default function App() {
   const [courierForm, setCourierForm] = useState(() => {
     try {
       const saved = localStorage.getItem("tm_courier_form");
-      if (saved) return JSON.parse(saved);
+      if (saved) return { coupon: "", ...JSON.parse(saved) };
     } catch (e) {}
     return {
       sName: "",
@@ -2111,6 +2188,7 @@ export default function App() {
       weight: "0.5kg",
       pType: "ডকুমেন্ট",
       deliveryType: "রেগুলার",
+      coupon: "",
     };
   });
 
@@ -3417,7 +3495,6 @@ export default function App() {
 
         if (isTryingAdmin && isFallbackAdminPass) {
           console.log("Admin fallback authentication activated via password typing...");
-          addToast("প্রিয় এডমিন, টাইপ করে সফলভাবে লগইন করা হয়েছে! 👑", "success");
           localStorage.setItem("admin_login_override", "true");
           setIsSecureAdminState(true);
           setUser({
@@ -3972,6 +4049,7 @@ export default function App() {
         assignedEmployeePhoto: "",
         assignedEmployeeSector: "",
         timestamp: new Date().toISOString(),
+        coupon: courierForm.coupon || "",
       });
 
       addToast(trans("কুরিয়ার বুকিং সফলভাবে সম্পন্ন হয়েছে! 🎉", "Courier booking completed successfully! 🎉"), "success");
@@ -3987,6 +4065,7 @@ export default function App() {
         weight: "0.5kg",
         pType: "ডকুমেন্ট",
         deliveryType: "রেগুলার",
+        coupon: "",
       });
 
       setSuccessModal({
@@ -4880,18 +4959,7 @@ export default function App() {
         <div className="absolute top-0 left-0 w-48 h-48 bg-purple-500/15 rounded-full blur-[50px] pointer-events-none"></div>
         <div className="absolute bottom-0 right-0 w-48 h-48 bg-indigo-500/15 rounded-full blur-[50px] pointer-events-none"></div>
 
-        {/* Cancel/Dismiss button */}
-        <button
-          onClick={() => {
-            setIsVisible(false);
-            localStorage.setItem("hideAnnouncements", "true");
-            addToast(trans("ঘোষণা সেকশনটি বন্ধ করা হয়েছে", "Announcement section dismissed"), "success");
-          }}
-          className="absolute top-3.5 right-3.5 p-2 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all z-30 cursor-pointer"
-          title={trans("ক্যান্সেল করুন", "Dismiss")}
-        >
-          <X size={15} />
-        </button>
+
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -5178,47 +5246,7 @@ export default function App() {
                   </div>
                 )}
 
-                {authEmailInput.trim().toLowerCase() === "enamulislam1753@gmail.com" && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-2xl text-[12px] text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/30 font-sans leading-relaxed text-left"
-                  >
-                    <span className="font-extrabold block text-amber-950 dark:text-amber-100 text-sm mb-1.5">👑 প্রিয় এডমিন (Primary Admin)</span>
-                    <p className="mb-2">
-                      এই ইমেইলটি ইতিপূর্বে <strong>Google Sign-In (গুগল দিয়ে লগইন)</strong> দিয়ে রেজিস্টার করা হয়েছে, তাই সাধারণ পাসওয়ার্ড দিয়ে ডাইরেক্ট লগইন নিচ্ছে না। 
-                    </p>
-                    <p className="font-bold underline mb-2">সমাধান করতে নিচের ২টির যেকোনো একটি করুন:</p>
-                    
-                    <div className="space-y-2 mt-1">
-                      <div className="bg-white/80 dark:bg-black/40 p-2.5 rounded-xl border border-amber-200/50">
-                        <span className="font-bold text-amber-900 dark:text-amber-200 block mb-1">পদ্ধতি ১: নতুন পাসওয়ার্ড রিসেট করা (রিকমেন্ডেড)</span>
-                        <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-1.5">নিচের বাটনে ক্লিক করুন, আপনার জিমেইলে সাথে সাথে একটি লিংক যাবে। সেখানে আপনার নতুন ইচ্ছামত পাসওয়ার্ডটি লিখে সেট বাটনে ক্লিক করলেই টাইপ করে লগইন করতে পারবেন:</p>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await sendPasswordResetEmail(auth, "enamulislam1753@gmail.com");
-                              addToast("আপনার ইমেইল (enamulislam1753@gmail.com)-এ পাসওয়ার্ড রিসেট লিংক পাঠানো হয়েছে! 📧", "success");
-                            } catch (err: any) {
-                              addToast(`রিসেট লিংক পাঠানো ব্যর্থ হয়েছে: ${err.message}`, "error");
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl transition-all cursor-pointer shadow-sm text-[11px] flex items-center gap-1.5"
-                        >
-                          📬 জিমেইলে পাসওয়ার্ড রিসেট লিংক পাঠান
-                        </button>
-                      </div>
 
-                      <div className="bg-white/80 dark:bg-black/40 p-2.5 rounded-xl border border-amber-200/50">
-                        <span className="font-bold text-amber-900 dark:text-amber-200 block mb-1">পদ্ধতি ২: গুগল ডাইরেক্ট সাইন-ইন</span>
-                        <p className="text-[11px] text-gray-600 dark:text-gray-400">
-                          নিচ থেকে সরাসরি <strong className="text-indigo-600 dark:text-indigo-400">‘গুগল দিয়ে লগইন’</strong> বাটনে ক্লিক করে এক ক্লিকেই লগইন করতে পারবেন।
-                        </p>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
                 {authModal.mode === "LOGIN" && (
                   <div className="text-right">
                     <button
@@ -5354,26 +5382,26 @@ export default function App() {
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-6 left-6 z-[1500] max-w-[290px] bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-2xl p-3 pr-7 rounded-2xl flex items-center gap-2.5 relative"
+            className="fixed bottom-6 left-6 z-[1500] max-w-[210px] bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-lg p-2 pr-6 rounded-xl flex items-center gap-1.5 relative"
           >
             <button
               onClick={() => setShowSocialProof(false)}
-              className="absolute top-2 right-2 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
+              className="absolute top-1 right-1 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
               title="Cancel"
             >
-              <X size={12} />
+              <X size={10} />
             </button>
             <div className="relative flex-shrink-0">
-              <span className="flex h-2.5 w-2.5 absolute -top-1 -right-1">
+              <span className="flex h-1.5 w-1.5 absolute -top-0.5 -right-0.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
               </span>
-              <div className="w-8 h-8 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-sm">
+              <div className="w-6 h-6 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-xs">
                 👥
               </div>
             </div>
-            <div className="text-left">
-              <p className="text-[10px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
+            <div className="text-left leading-tight">
+              <p className="text-[8px] sm:text-[8.5px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
                 {trans(
                   [
                     "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
@@ -5384,7 +5412,7 @@ export default function App() {
                   ][socialProofIndex]
                 )}
               </p>
-              <p className="text-[8px] text-emerald-500 font-extrabold uppercase tracking-widest mt-0.5">
+              <p className="text-[7px] text-emerald-500 font-black uppercase tracking-wider mt-0.5">
                 Verified Booking
               </p>
             </div>
@@ -7468,6 +7496,19 @@ export default function App() {
                       className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 h-32 transition-all font-medium resize-none text-gray-900 dark:text-white"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <Tag size={12} /> {trans("কুপন কোড (যদি থাকে)", "Coupon Code (If any)")}
+                    </label>
+                    <input
+                      value={orderForm.coupon}
+                      onChange={(e) =>
+                        setOrderForm({ ...orderForm, coupon: e.target.value })
+                      }
+                      placeholder={trans("কুপন কোড দিন (যেমন: TIME15)", "Enter Coupon Code (e.g. TIME15)")}
+                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 uppercase font-mono transition-all font-black text-gray-900 dark:text-white text-xs"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={placeOrder}
@@ -7653,6 +7694,21 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                  </div>
+
+                  {/* Coupon Field */}
+                  <div className="bg-white dark:bg-[#0f172a] rounded-3xl p-6 border border-gray-150 dark:border-white/5 shadow-md space-y-2">
+                    <label className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                      <Tag size={12} /> {trans("কুপন কোড (যদি থাকে)", "Coupon Code (If any)")}
+                    </label>
+                    <input
+                      value={courierForm.coupon || ""}
+                      onChange={(e) =>
+                        setCourierForm({ ...courierForm, coupon: e.target.value })
+                      }
+                      placeholder={trans("কুপন কোড দিন (যেমন: TIME15)", "Enter Coupon Code (e.g. TIME15)")}
+                      className="w-full px-5 py-4 rounded-2xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 uppercase font-mono transition-all font-black text-gray-900 dark:text-white text-xs"
+                    />
                   </div>
 
                   {/* Summary card opening */}
@@ -9349,6 +9405,39 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Live Work Location Tracking Map for Employee */}
+                            <div className="border-t dark:border-white/5 pt-4">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveEmployeeMaps((prev) => ({
+                                    ...prev,
+                                    [o.id]: !prev[o.id],
+                                  }));
+                                }}
+                                className={`w-full py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-between border ${activeEmployeeMaps[o.id] ? "bg-slate-100 dark:bg-white/5 border-slate-200 text-indigo-600 dark:text-indigo-400" : "bg-teal-650 hover:bg-teal-700 border-teal-650 hover:border-teal-700 text-white shadow-md active:scale-95 cursor-pointer"}`}
+                              >
+                                <span className="flex items-center gap-2">
+                                  🗺️ কাজের লাইভ লোকেশন ম্যাপ দেখুন
+                                </span>
+                                <span className="text-[10px] font-bold">
+                                  {activeEmployeeMaps[o.id] ? "বন্ধ করুন ▲" : "ওপেন করুন ▼"}
+                                </span>
+                              </button>
+
+                              {activeEmployeeMaps[o.id] && (
+                                <div className="mt-3 overflow-hidden rounded-2xl shadow-inner border border-gray-150 dark:border-white/5 text-left bg-white dark:bg-[#0b1329]">
+                                  <OrderTracker
+                                    order={o}
+                                    language={language}
+                                    trans={trans}
+                                    currentUserId={user?.uid || ""}
+                                    userRole="employee"
+                                  />
+                                </div>
+                              )}
+                            </div>
+
                             {/* Collapsible Live Chat Hub with Customer */}
                             <div className="border-t dark:border-white/5 pt-4">
                               <button
@@ -9388,6 +9477,45 @@ export default function App() {
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (confirm("অর্ডারের অগ্রগতি কি 'প্রক্রিয়াধীন' হিসেবে চিহ্নিত করতে চান?")) {
+                                      try {
+                                        const empName = employees.find((e) => e.uid === user?.uid)?.fullName || "একজন কর্মী";
+                                        await updateDoc(doc(db, "orders", o.id), {
+                                          status: "প্রক্রিয়াধীন",
+                                          liveTrackingComment: `কর্মী দ্বারা অর্ডার প্রক্রিয়াকরণ শুরু করা হয়েছে (${empName})`
+                                        });
+                                        addToast(
+                                          "কাজটি প্রক্রিয়াধীন হিসেবে মার্ক করা হয়েছে!",
+                                        );
+                                        // notify customer
+                                        createNotification(
+                                          o.userId,
+                                          "অর্ডার প্রক্রিয়াধীন ⚙️",
+                                          `আপনার সার্ভিস অর্ডার নং ${o.id} প্রক্রিয়াধীন রয়েছে। কর্মী কাজ শুরু করেছেন।`,
+                                          "order",
+                                          o.id,
+                                        );
+                                        // notify admin
+                                        createNotification(
+                                          "admin",
+                                          "কাজ প্রক্রিয়াধীন ⚙️",
+                                          `কর্মী ${empName} অর্ডার নং ${o.id} এর কাজ প্রক্রিয়াকরণ শুরু করেছেন।`,
+                                          "order",
+                                          o.id,
+                                        );
+                                      } catch (err) {
+                                        addToast("ব্যর্থ", "error");
+                                      }
+                                    }
+                                  }}
+                                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl border border-amber-200 dark:border-amber-500/25 transition-all cursor-pointer ${o.status === "প্রক্রিয়াধীন" ? "bg-amber-500 text-white" : "bg-amber-50/10 text-amber-500 hover:bg-amber-105 dark:hover:bg-amber-500/10"}`}
+                                >
+                                  ⚙️ প্রক্রিয়াকরণ (Processing)
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={async () => {
                                     if (confirm("অর্ডারটি কি সম্পন্ন হিসেবে চিহ্নিত করতে চান?")) {
                                       try {
@@ -9425,6 +9553,7 @@ export default function App() {
                                   ✅ সম্পন্ন (Completed)
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={async () => {
                                     if (confirm("অর্ডারটি কি বাতিল করতে চান?")) {
                                       try {
@@ -9458,9 +9587,9 @@ export default function App() {
                                       }
                                     }
                                   }}
-                                  className="px-3 py-2 text-[10px] font-black bg-red-500/10 text-red-500 border border-red-500/25 hover:bg-red-500/20 rounded-xl cursor-pointer"
+                                  className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl border border-red-200 dark:border-red-500/25 transition-all cursor-pointer ${o.status === "বাতিল" ? "bg-red-600 text-white" : "bg-red-50/10 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"}`}
                                 >
-                                  ❌ বাতিল করুন
+                                  ❌ বাতিল করুন (Cancel)
                                 </button>
                               </div>
                             </div>
@@ -11312,6 +11441,18 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={() => {
+                                      setActiveAdminMaps((prev) => ({
+                                        ...prev,
+                                        [o.id]: !prev[o.id],
+                                      }));
+                                    }}
+                                    className={`p-2 rounded-xl transition-all ${activeAdminMaps[o.id] ? "bg-[#ff2e56] text-white shadow" : "text-[#ff2e56] hover:bg-rose-50 dark:hover:bg-[#ff2e56]/10"}`}
+                                    title="Track Live Location / লাইভ ট্র্যাকিং ম্যাপ"
+                                  >
+                                    <Compass size={16} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
                                       setActiveAdminChats((prev) => ({
                                         ...prev,
                                         [o.id]: !prev[o.id],
@@ -11347,6 +11488,21 @@ export default function App() {
                                 </div>
                               </td>
                             </tr>
+                            {activeAdminMaps[o.id] && (
+                              <tr key={`map-row-${o.id}`} className="bg-slate-50/40 dark:bg-slate-900/10">
+                                <td colSpan={6} className="px-6 py-4">
+                                  <div className="max-w-4xl mx-auto rounded-3xl border border-teal-100/30 dark:border-white/5 shadow-xs p-1 bg-white dark:bg-[#0b1329] text-left">
+                                    <OrderTracker
+                                      order={o}
+                                      language={language}
+                                      trans={trans}
+                                      currentUserId="admin"
+                                      userRole="admin"
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
                             {activeAdminChats[o.id] && (
                               <tr key={`chat-row-${o.id}`} className="bg-slate-50/40 dark:bg-slate-900/10">
                                 <td colSpan={6} className="px-6 py-4">
@@ -11646,7 +11802,23 @@ export default function App() {
                               <Send size={14} /> আপডেট ও পেমেন্ট রিকোয়েস্ট পাঠান
                             </button>
                             
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-5 gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setActiveAdminMaps((prev) => ({
+                                    ...prev,
+                                    [o.id]: !prev[o.id],
+                                  }));
+                                }}
+                                className={`py-2 px-1 rounded-xl border font-black text-[9px] uppercase flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                                  activeAdminMaps[o.id]
+                                    ? "bg-[#ff2e56] text-white border-transparent shadow"
+                                    : "bg-white dark:bg-slate-900 text-[#ff2e56] border-[#ff2e56]/30 dark:border-white/10"
+                                }`}
+                              >
+                                <Compass size={12} /> ম্যাপ
+                              </button>
+                              
                               <button
                                 onClick={() => {
                                   setActiveAdminChats((prev) => ({
@@ -11693,6 +11865,19 @@ export default function App() {
                               </button>
                             </div>
                           </div>
+
+                          {/* Mobile Active Location Monitor Map inside card if active */}
+                          {activeAdminMaps[o.id] && (
+                            <div className="bg-slate-50/50 dark:bg-slate-950/20 p-2.5 rounded-2xl mt-2 border border-teal-150/30 dark:border-white/5 text-left text-gray-800 dark:text-slate-100">
+                              <OrderTracker
+                                order={o}
+                                language={language}
+                                trans={trans}
+                                currentUserId="admin"
+                                userRole="admin"
+                              />
+                            </div>
+                          )}
 
                           {/* Mobile Active Chat Row inside card if active */}
                           {activeAdminChats[o.id] && (
