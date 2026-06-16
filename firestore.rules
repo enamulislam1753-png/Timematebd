@@ -160,6 +160,18 @@ service cloud.firestore {
                          )
                        ));
       allow delete: if isAdmin() || isStaff();
+
+      match /chats/{chatId} {
+        allow read, create: if (
+          isAdmin() || isStaff() ||
+          (isSignedIn() && (
+            request.auth.uid == get(/databases/$(database)/documents/orders/$(orderId)).data.userId ||
+            request.auth.uid == get(/databases/$(database)/documents/orders/$(orderId)).data.assignedEmployeeId
+          )) ||
+          (request.auth == null)
+        );
+        allow update, delete: if isAdmin() || isStaff();
+      }
     }
 
     match /reviews/{reviewId} {
@@ -193,17 +205,17 @@ service cloud.firestore {
     match /support_rooms/{roomId} {
       allow get: if isSignedIn() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
       allow list: if isSignedIn() && resource.data.customerUid == request.auth.uid;
-      allow read: if isAdmin() || isStaff() || isEmployee();
+      allow read: if isAdmin() || isStaff();
       allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
       allow update: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
-      allow update: if isAdmin() || isStaff() || isEmployee();
+      allow update: if isAdmin() || isStaff();
       allow delete: if isAdmin() || isStaff();
 
       match /messages/{messageId} {
         allow read: if isSignedIn() && roomId == request.auth.uid;
-        allow read: if isAdmin() || isStaff() || isEmployee();
+        allow read: if isAdmin() || isStaff();
         allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
-        allow create: if isSignedIn() && !isBanned() && (isAdmin() || isStaff() || isEmployee());
+        allow create: if isSignedIn() && !isBanned() && (isAdmin() || isStaff());
         allow update, delete: if isAdmin() || isStaff();
       }
     }

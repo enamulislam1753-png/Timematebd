@@ -3018,7 +3018,7 @@ export default function App() {
 
   // Live Support Rooms Stream Subscription
   useEffect(() => {
-    const isRep = profile?.role === "admin" || profile?.role === "staff" || profile?.role === "employee" || isSecureAdminState;
+    const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
     let unsubscribeRooms: () => void = () => {};
 
     if (isRep) {
@@ -9026,11 +9026,10 @@ export default function App() {
               })()}
 
               {/* Navigation Tabs for Employee */}
-              <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
+              <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-2xl shadow-sm border border-gray-150 dark:border-white/5 overflow-x-auto no-scrollbar">
                 {[
                   { id: "jobs", label: "সহলভ্য নতুন কাজ (Job Board) 📋" },
                   { id: "my-tasks", label: "আমার চলমান কাজসমূহ 🚚" },
-                  { id: "customer-support", label: "গ্রাহক লাইভ সাপোর্ট চ্যাট 💬" },
                 ].map((tab) => (
                   <button
                     key={tab.id}
