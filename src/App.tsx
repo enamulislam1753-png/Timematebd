@@ -1043,20 +1043,73 @@ export default function App() {
     setIsInstallModalOpen(true);
   };
 
-  const handleDirectApkDownload = () => {
+  const safeDownloadFile = (base64Data: string, fallbackUrl: string, defaultFileName: string) => {
     try {
       const link = document.createElement("a");
-      link.href = "/timemate-bd.apk";
-      link.download = "timemate-bd.apk";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (base64Data && base64Data.startsWith("data:")) {
+        // Safe base64 conversion to Blob URL to prevent webview crashes
+        const parts = base64Data.split(";base64,");
+        const contentType = parts[0].split(":")[1] || "application/octet-stream";
+        const raw = window.atob(parts[1]);
+        const rawLength = raw.length;
+        const uInt8Array = new Uint8Array(rawLength);
+        for (let i = 0; i < rawLength; ++i) {
+          uInt8Array[i] = raw.charCodeAt(i);
+        }
+        const blob = new Blob([uInt8Array], { type: contentType });
+        const blobUrl = URL.createObjectURL(blob);
+        
+        link.href = blobUrl;
+        link.download = defaultFileName;
+        document.body.appendChild(link);
+        link.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
+        }, 100);
+      } else if (fallbackUrl) {
+        link.href = fallbackUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        if (fallbackUrl.startsWith("/") || fallbackUrl.startsWith("data:")) {
+          link.download = defaultFileName;
+        }
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        addToast("ডাউনলোড করার মতো কোনো ফাইল বা লিংক এখনও সেভ করা হয়নি!", "error");
+      }
+    } catch (err) {
+      console.error("File download failed:", err);
+      try {
+        const link = document.createElement("a");
+        link.href = base64Data || fallbackUrl || "#";
+        if (base64Data) link.download = defaultFileName;
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        addToast("ডাউনলোড শুরু করা যায়নি!", "error");
+      }
+    }
+  };
+
+  const handleDirectApkDownload = () => {
+    try {
       addToast(
         trans(
-          "TimeMate BD APK ডাউনলোড শুরু হয়েছে!",
-          "TimeMate BD APK download has started!"
+          "APK ফাইল ডাউনলোড শুরু হচ্ছে...",
+          "Starting APK file download..."
         ),
         "success"
+      );
+      safeDownloadFile(
+        appFilesSettings.apkBase64,
+        appFilesSettings.apkUrl || "/timemate-bd.apk",
+        appFilesSettings.apkFileName || "timemate-bd.apk"
       );
     } catch (err) {
       console.error("APK Download failed:", err);
@@ -1300,6 +1353,8 @@ export default function App() {
   const [isAdImageProcessing, setIsAdImageProcessing] = useState<boolean>(false);
   const autoOpenedOrdersRef = useRef<string[]>([]);
   const autoOpenedReviewsRef = useRef<string[]>([]);
+  const adminChatEndRef = useRef<HTMLDivElement | null>(null);
+  const customerChatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -2236,6 +2291,7 @@ export default function App() {
   // Customer Support Live Chat Real-Time States
   const [supportRooms, setSupportRooms] = useState<any[]>([]);
   const [activeSupportRoomId, setActiveSupportRoomId] = useState<string | null>(null);
+  const [showSpamRooms, setShowSpamRooms] = useState(false);
   const [isSupportWidgetOpen, setIsSupportWidgetOpen] = useState(false);
   const [isSupportMenuOpen, setIsSupportMenuOpen] = useState(false);
   const [guestSession, setGuestSession] = useState<{ uid: string; name: string; phone?: string } | null>(() => {
@@ -2257,6 +2313,24 @@ export default function App() {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [selectedAdminOrder, setSelectedAdminOrder] = useState<any>(null);
   const [adminMessage, setAdminMessage] = useState({ title: "", body: "" });
+  const [appFilesSettings, setAppFilesSettings] = useState<{
+    apkUrl: string;
+    iosUrl: string;
+    apkFileName: string;
+    iosFileName: string;
+    apkBase64: string;
+    iosBase64: string;
+  }>({
+    apkUrl: "",
+    iosUrl: "",
+    apkFileName: "",
+    iosFileName: "",
+    apkBase64: "",
+    iosBase64: "",
+  });
+  const [apkFormState, setApkFormState] = useState({ url: "", base64: "", fileName: "" });
+  const [iosFormState, setIosFormState] = useState({ url: "", base64: "", fileName: "" });
+  const [isAppFilesSaving, setIsAppFilesSaving] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
   const [editingCoinRequest, setEditingCoinRequest] = useState<any | null>(
     null,
@@ -3007,14 +3081,49 @@ export default function App() {
       },
     );
 
+    const unsubAppFiles = onSnapshot(
+      doc(db, "system", "app_files"),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setAppFilesSettings({
+            apkUrl: data.apkUrl || "",
+            iosUrl: data.iosUrl || "",
+            apkFileName: data.apkFileName || "",
+            iosFileName: data.iosFileName || "",
+            apkBase64: data.apkBase64 || "",
+            iosBase64: data.iosBase64 || "",
+          });
+        }
+      },
+      (err) => {
+        console.log("No app files config found");
+      }
+    );
+
     return () => {
       unsubReviews();
       unsubAnnouncements();
       unsubServices();
       unsubRewards();
       unsubPaymentSettings();
+      unsubAppFiles();
     };
   }, []);
+
+  // Sync admin app files form inputs with loaded app files settings
+  useEffect(() => {
+    setApkFormState({
+      url: appFilesSettings.apkUrl || "",
+      base64: appFilesSettings.apkBase64 || "",
+      fileName: appFilesSettings.apkFileName || ""
+    });
+    setIosFormState({
+      url: appFilesSettings.iosUrl || "",
+      base64: appFilesSettings.iosBase64 || "",
+      fileName: appFilesSettings.iosFileName || ""
+    });
+  }, [appFilesSettings]);
 
   // Live Support Rooms Stream Subscription
   useEffect(() => {
@@ -3114,6 +3223,18 @@ export default function App() {
 
     return () => unsubscribe();
   }, [activeSupportRoomId]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      adminChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  }, [activeRoomMessages]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      customerChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  }, [customerSupportMessages]);
 
   // Data Loading
   useEffect(() => {
@@ -4570,7 +4691,10 @@ export default function App() {
     setAdminChatMessage("");
     
     let senderName = profile?.fullName || profile?.name || user?.displayName || "প্রতিনিধি";
-    let senderRole = profile?.role || "admin";
+    let senderRole = "admin";
+    if (profile?.role === "admin" || profile?.role === "staff") {
+      senderRole = profile.role;
+    }
     
     try {
       await addDoc(collection(db, "support_rooms", activeSupportRoomId, "messages"), {
@@ -4598,24 +4722,49 @@ export default function App() {
     return (
       <div className="bg-white dark:bg-[#0f172a] rounded-[2.5rem] border border-gray-150 dark:border-white/5 shadow-2xl overflow-hidden flex flex-col md:flex-row h-[605px] font-sans">
         {/* Left Side: Active Support Rooms/Chats list */}
-        <div className="w-full md:w-80 border-r border-gray-150 dark:border-white/5 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/10 shrink-0">
+        <div className={`w-full md:w-80 border-r border-gray-150 dark:border-white/5 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/10 shrink-0 ${activeSupportRoomId ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-5 border-b border-gray-150 dark:border-white/5 bg-white dark:bg-[#0f172a]/20">
             <h3 className="text-sm font-black text-gray-900 dark:text-white flex items-center gap-2">
               <MessageSquare size={16} className="text-indigo-600" />
-              সক্রিয় কাস্টমার চ্যাট রুম ({supportRooms.length})
+              কাস্টমার চ্যাটরুম ({supportRooms.filter(r => showSpamRooms ? (r.isSpam || r.isBlocked || r.status === "spam") : !(r.isSpam || r.isBlocked || r.status === "spam")).length})
             </h3>
-            <p className="text-[10px] text-gray-400 font-bold tracking-wider mt-1 uppercase">
-              কাস্টমার চ্যাট রিকুয়েস্টসমূহ
-            </p>
+            
+            {/* Spam / Blocked Toggler */}
+            <div className="flex gap-1.5 mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSpamRooms(false);
+                  setActiveSupportRoomId(null);
+                }}
+                className={`flex-1 py-1.5 px-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer text-center ${!showSpamRooms ? "bg-indigo-600 text-white shadow" : "bg-gray-100 dark:bg-white/5 text-gray-500 hover:text-gray-700"}`}
+              >
+                সক্রিয় চ্যাট 💬
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSpamRooms(true);
+                  setActiveSupportRoomId(null);
+                }}
+                className={`flex-1 py-1.5 px-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer text-center ${showSpamRooms ? "bg-rose-600 text-white shadow" : "bg-gray-100 dark:bg-white/5 text-gray-500 hover:text-rose-500"}`}
+              >
+                স্প্যাম/ব্লকড 🚫
+              </button>
+            </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {supportRooms.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-xs font-bold font-sans">
-                কোনো চ্যাট রিকুয়েস্ট এই মুহূর্তে সচল নেই। ☕
-              </div>
-            ) : (
-              supportRooms.map((room) => {
+          <div className="flex-1 overflow-y-auto p-3 space-y-2 font-sans">
+            {(() => {
+              const displayedRooms = supportRooms.filter(r => showSpamRooms ? (r.isSpam || r.isBlocked || r.status === "spam") : !(r.isSpam || r.isBlocked || r.status === "spam"));
+              if (displayedRooms.length === 0) {
+                return (
+                  <div className="text-center py-12 text-gray-400 text-xs font-bold">
+                    {showSpamRooms ? "কোনো স্প্যাম বা ব্লকড চ্যাটরুমের রেকর্ড নেই। 😊" : "কোনো সচল চ্যাটরুম এই মুহূর্তে নেই। ☕"}
+                  </div>
+                );
+              }
+              return displayedRooms.map((room) => {
                 const isActive = activeSupportRoomId === room.id;
                 const dateStr = room.lastMessageTime ? new Date(room.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
                 return (
@@ -4676,13 +4825,13 @@ export default function App() {
                     </div>
                   </button>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
         </div>
         
         {/* Right Side: Message Threads Pane */}
-        <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f172a] relative">
+        <div className={`flex-1 flex flex-col h-full bg-white dark:bg-[#0f172a] relative ${!activeSupportRoomId ? 'hidden md:flex' : 'flex'}`}>
           {!activeSupportRoomId ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-450">
               <MessageSquare size={48} className="text-gray-300 dark:text-gray-700 animate-pulse mb-4" />
@@ -4700,36 +4849,73 @@ export default function App() {
                 <>
                   {/* Active Header Info Banner */}
                   <div className="px-6 py-4 border-b border-gray-150 dark:border-white/5 flex items-center justify-between bg-slate-50/50 dark:bg-white/1 shrink-0">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-extrabold text-xs text-gray-950 dark:text-white truncate">
-                          {activeRoom?.customerName || "অজ্ঞাত গ্রাহক"}
-                        </h4>
-                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-black tracking-widest ${activeRoom?.isGuest ? "bg-amber-500/15 text-amber-500" : "bg-teal-500/15 text-teal-500"}`}>
-                          {activeRoom?.isGuest ? "GUEST" : "REGULAR CLIENT"}
-                        </span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        onClick={() => setActiveSupportRoomId(null)}
+                        className="md:hidden p-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-white rounded-xl flex items-center justify-center shrink-0 cursor-pointer"
+                        title="ফিরে যান"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-extrabold text-xs text-gray-950 dark:text-white truncate">
+                            {activeRoom?.customerName || "অজ্ঞাত গ্রাহক"}
+                          </h4>
+                          <span className={`px-1.5 py-0.2 rounded text-[8px] font-black tracking-widest ${activeRoom?.isGuest ? "bg-amber-500/15 text-amber-500" : "bg-teal-500/15 text-teal-500"}`}>
+                            {activeRoom?.isGuest ? "GUEST" : "REGULAR CLIENT"}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-gray-400 font-bold block mt-0.5">
+                          মোবাইল: {activeRoom?.customerPhone || "N/A"} • ইমেল: {activeRoom?.customerEmail || "N/A"}
+                        </p>
                       </div>
-                      <p className="text-[9px] text-gray-400 font-bold block mt-0.5">
-                        মোবাইল: {activeRoom?.customerPhone || "N/A"} • ইমেল: {activeRoom?.customerEmail || "N/A"}
-                      </p>
                     </div>
                     
-                    <button
-                      onClick={async () => {
-                        if (confirm("এই চ্যাট রুমের সেশন কি সম্পন্ন এবং বন্ধ করতে চান?")) {
-                          try {
-                            await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
-                            setActiveSupportRoomId(null);
-                            addToast("চ্যাট সেশন সমাধানকৃত অবস্তায় বন্ধ করা হয়েছে।");
-                          } catch (e) {
-                            addToast("রুম রিমুভ ব্যর্থ হয়েছে।");
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const isSpamNow = !(activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam");
+                          if (confirm(isSpamNow ? "এই গ্রাহক সেশনটি কি স্প্যাম/ব্লক তালিকাভুক্ত করতে চান?" : "এই গ্রাহক সেশনটি কি সক্রিয় করতে চান?")) {
+                            try {
+                              await updateDoc(doc(db, "support_rooms", activeSupportRoomId), {
+                                isSpam: isSpamNow,
+                                isBlocked: isSpamNow,
+                                status: isSpamNow ? "spam" : "active"
+                              });
+                              addToast(isSpamNow ? "চ্যাটটি স্প্যাম/ব্লকড হিসেবে চিহ্নিত করা হয়েছে।" : "চ্যাটটি পুনরায় সক্রিয় করা হয়েছে।");
+                              setActiveSupportRoomId(null);
+                            } catch (e) {
+                              addToast("অপারেশন ব্যর্থ হয়েছে।");
+                            }
                           }
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-red-100 hover:bg-red-500/20 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                    >
-                      রুম বন্ধ করুন ❌
-                    </button>
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                          (activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam")
+                            ? "bg-emerald-100 dark:bg-emerald-950/40 border-emerald-200 text-emerald-600"
+                            : "bg-rose-100 dark:bg-rose-950/40 border-rose-200 text-rose-600"
+                        }`}
+                      >
+                        {(activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam") ? "পুনরায় সক্রিয় করুন ✅" : "স্প্যাম/ব্লক করুন 🚫"}
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          if (confirm("এই চ্যাট রুমের সেশন কি সম্পন্ন এবং বন্ধ করতে চান?")) {
+                            try {
+                              await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
+                              setActiveSupportRoomId(null);
+                              addToast("চ্যাট সেশন সমাধানকৃত অবস্তায় বন্ধ করা হয়েছে।");
+                            } catch (e) {
+                              addToast("রুম রিমুভ ব্যর্থ হয়েছে।");
+                            }
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-red-100 hover:bg-red-500/20 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border border-red-200"
+                      >
+                        রুম বন্ধ করুন ❌
+                      </button>
+                    </div>
                   </div>
                   
                   {/* Messages Flow Area */}
@@ -4740,25 +4926,45 @@ export default function App() {
                       </div>
                     ) : (
                       activeRoomMessages.map((m) => {
-                        const isMe = m.senderRole === "admin" || m.senderRole === "staff" || m.senderRole === "employee" || m.senderId === user?.uid;
+                        const isMe = m.senderRole !== "customer";
                         const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
                         return (
                           <div key={m.id} className={`flex items-start gap-1 p-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-xs ${
+                            <div className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-xs relative group ${
                               isMe 
                                 ? 'bg-indigo-650 text-white rounded-tr-none' 
                                 : 'bg-gray-100 dark:bg-white/5 text-gray-800 dark:text-gray-100 rounded-tl-none'
                             }`}>
-                              <div className="flex items-center gap-2 justify-between mb-1 opacity-60 text-[8px] font-black uppercase">
+                              <div className="flex items-center gap-2 justify-between mb-1 opacity-60 text-[8px] font-black uppercase pr-4">
                                 <span>{m.senderName} ({m.senderRole === "employee" ? "Rider" : m.senderRole === "staff" ? "Staff" : m.senderRole === "admin" ? "Admin" : m.senderRole})</span>
                                 <span>{timeStr}</span>
                               </div>
                               <p className="text-xs font-semibold leading-relaxed break-words font-sans">{m.text}</p>
+                              
+                              {/* Message Delete Trigger - Styled accessible and visible on both desktop & mobile */}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (confirm("আপনি কি এই বার্তাটি নিশ্চিতভাবে ডিলিট করতে চান?")) {
+                                    try {
+                                      await deleteDoc(doc(db, "support_rooms", activeSupportRoomId, "messages", m.id));
+                                      addToast("বার্তাটি সফলভাবে ডিলিট করা হয়েছে।");
+                                    } catch (e) {
+                                      addToast("বার্তা ডিলিট করা সম্ভব হয়নি।");
+                                    }
+                                  }
+                                }}
+                                className="absolute right-1 top-1 text-red-400 hover:text-red-650 bg-black/10 dark:bg-white/10 p-1 rounded-md cursor-pointer flex items-center justify-center transition-colors"
+                                title="বার্তা ডিলিট করুন"
+                              >
+                                <Trash2 size={10} />
+                              </button>
                             </div>
                           </div>
                         );
                       })
                     )}
+                    <div ref={adminChatEndRef} />
                   </div>
                   
                   {/* Input Form typing bar */}
@@ -4781,6 +4987,211 @@ export default function App() {
               );
             })()
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAppFilesAdminPanel = () => {
+    const handleFileChange = (type: 'apk' | 'ios', file: File) => {
+      if (!file) return;
+
+      if (file.size > 1024 * 1024) {
+        alert("সতর্কতা: ফাইলের সাইজ ১ মেগাবাইটের বেশি! ফায়ারবেস ডেটাবেইসের সীমাবদ্ধতার কারণে ১ এমবি-র বেশি সাইজের ফাইল সরাসরি আপলোডের পরিবর্তে গুগল ড্রাইভ বা ড্রপবক্সে আপলোড করে তার ‘ডাউনলোড লিংক’ ব্যবহার করার জন্য বিশেষভাবে অনুরোধ করা যাচ্ছে।");
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string;
+        if (type === 'apk') {
+          setApkFormState(prev => ({ ...prev, base64: base64, fileName: file.name }));
+        } else {
+          setIosFormState(prev => ({ ...prev, base64: base64, fileName: file.name }));
+        }
+        addToast(`${file.name} ফাইলটি সফলভাবে মেমরিতে লোড হয়েছে! সংরক্ষণ করতে নিচে "সেভ করুন" বাটনে ক্লিক করুন।`, "success");
+      };
+      reader.readAsDataURL(file);
+    };
+
+    const handleSaveAppFiles = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsAppFilesSaving(true);
+      try {
+        await setDoc(doc(db, "system", "app_files"), {
+          apkUrl: apkFormState.url,
+          apkBase64: apkFormState.base64,
+          apkFileName: apkFormState.fileName,
+          iosUrl: iosFormState.url,
+          iosBase64: iosFormState.base64,
+          iosFileName: iosFormState.fileName,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
+
+        addToast("অ্যাপ ফাইল ও ডাউনলোড লিংকগুলো সফলভাবে ফায়ারবেসে ডিটেক্ট ও আপডেট করা হয়েছে!", "success");
+      } catch (err) {
+        console.error("Error saving app files:", err);
+        addToast("সংরক্ষণ ব্যর্থ হয়েছে! ফাইলের সাইজ বেশি বড় হলে সরাসরি লিংক ব্যবহার করুন।", "error");
+      } finally {
+        setIsAppFilesSaving(false);
+      }
+    };
+
+    return (
+      <div className="max-w-4xl mx-auto bg-white dark:bg-[#0f172a] rounded-[2.5rem] border border-gray-150 dark:border-white/5 shadow-2xl p-8 overflow-hidden relative font-sans">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 blur-3xl rounded-full"></div>
+        
+        <div className="relative z-10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 dark:border-white/5 pb-6 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-800 flex items-center justify-center text-white shadow-lg shadow-indigo-500/10">
+                <Smartphone size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black italic tracking-tighter uppercase">
+                  APP FILE CONTROL CENTER
+                </h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                  এপ ডাউনলোড মডিউল ও এপিকে (APK / iOS) ফাইল বা লিঙ্ক নিয়ন্ত্রণ করুন
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveAppFiles} className="space-y-8">
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-semibold leading-relaxed">
+              💡 <span className="font-extrabold text-red-600 dark:text-red-400">গুরুত্বপূর্ণ নির্দেশনা:</span> আপনি সরাসরি মেমোরি থেকে ১ মেগাবাইটের কম সাইজের ছোট ফাইল (যেমন PWA শর্টকাট বা ডেমো এপিকে) আপলোড করতে পারবেন। কিন্তু ফায়ারবেস ডাটাবেজের ডকুমেন্ট সাইজ লিমিট ১ এমবি হওয়ার কারণে ২ এমবি বা তার বেশি ওজনের মূল এপ ফাইলগুলো সরাসরি আপলোড করার পরিবর্তে গুগল ড্রাইভ, ড্রপবক্স বা অন্য কোনো হোস্টিং সার্ভারে আপলোড করে সেটির <strong className="underline">ডাউনলোড লিংক ডাউনলোড লিঙ্ক বক্সে বসিয়ে দিন</strong>। এটি শতভাগ সফল ও নিরাপদ।
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="p-6 bg-slate-50/50 dark:bg-slate-900/50 border border-gray-150 dark:border-white/5 rounded-3xl space-y-4">
+                <div className="flex items-center gap-2 border-b border-gray-100 dark:border-white/5 pb-3">
+                  <div className="w-8 h-8 rounded-xl bg-green-500/10 text-green-500 flex items-center justify-center">
+                    <Smartphone size={16} />
+                  </div>
+                  <h4 className="text-xs font-black uppercase text-gray-800 dark:text-white">
+                    অ্যান্ড্রয়েড এপ (Android APK) সেটিংস
+                  </h4>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
+                    সরাসরি ডাউনলোড লিঙ্ক (Direct URL Link)
+                  </label>
+                  <input
+                    type="url"
+                    value={apkFormState.url}
+                    onChange={(e) => setApkFormState(prev => ({ ...prev, url: e.target.value }))}
+                    placeholder="যেমন: https://drive.google.com/uc?export=download&id=..."
+                    className="w-full px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-gray-800 dark:text-white"
+                  />
+                  <span className="text-[9px] text-gray-400 font-bold mt-1 block">
+                    * আপনার কাস্টম হোস্টিং ডাউনলোডের লিঙ্ক এখানে পেস্ট করুন।
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
+                    অথবা সরাসরি APK ফাইল আপলোড (অনূর্ধ্ব ১ এমবি)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <label className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-white/5 dark:hover:bg-white/10 text-indigo-600 dark:text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap">
+                      ফাইল নির্বাচন করুন
+                      <input
+                        type="file"
+                        accept=".apk"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileChange('apk', file);
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    <span className="text-[10px] font-mono text-gray-500 truncate max-w-[150px]">
+                      {apkFormState.fileName || "কোনো ফাইল সিলেক্ট করা হয়নি"}
+                    </span>
+                    {apkFormState.base64 && (
+                      <button
+                        type="button"
+                        onClick={() => setApkFormState(prev => ({ ...prev, base64: "", fileName: "" }))}
+                        className="text-[10px] text-red-500 font-black cursor-pointer hover:underline uppercase"
+                      >
+                        রিমুভ
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-50/50 dark:bg-slate-900/50 border border-gray-150 dark:border-white/5 rounded-3xl space-y-4">
+                <div className="flex items-center gap-2 border-b border-gray-100 dark:border-white/5 pb-3">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
+                    <Smartphone size={16} />
+                  </div>
+                  <h4 className="text-xs font-black uppercase text-gray-800 dark:text-white">
+                    আইওএস এপ (iOS Apple) সেটিংস
+                  </h4>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
+                    আইওএস ডাউনলোড লিঙ্ক / টেস্টফ্লাইট স্টোর লিঙ্ক
+                  </label>
+                  <input
+                    type="url"
+                    value={iosFormState.url}
+                    onChange={(e) => setIosFormState(prev => ({ ...prev, url: e.target.value }))}
+                    placeholder="যেমন: https://apps.apple.com/app/your-app-id..."
+                    className="w-full px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-gray-800 dark:text-white"
+                  />
+                  <span className="text-[9px] text-gray-400 font-bold mt-1 block">
+                    * অফিশিয়াল অ্যাপ স্টোর বা টেস্টফ্লাইট এর লিঙ্ক ব্যবহার করতে পারেন।
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">
+                    অথবা সরাসরি iOS ফাইল আপলোড (.ipa / .mobileprovision)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <label className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-white/5 dark:hover:bg-white/10 text-indigo-600 dark:text-white text-[11px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap">
+                      ফাইল নির্বাচন করুন
+                      <input
+                        type="file"
+                        accept=".ipa,.mobileprovision"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileChange('ios', file);
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    <span className="text-[10px] font-mono text-gray-500 truncate max-w-[150px]">
+                      {iosFormState.fileName || "কোনো ফাইল সিলেক্ট করা হয়নি"}
+                    </span>
+                    {iosFormState.base64 && (
+                      <button
+                        type="button"
+                        onClick={() => setIosFormState(prev => ({ ...prev, base64: "", fileName: "" }))}
+                        className="text-[10px] text-red-500 font-black cursor-pointer hover:underline uppercase"
+                      >
+                        রিমুভ
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-gray-100 dark:border-white/5">
+              <button
+                type="submit"
+                disabled={isAppFilesSaving}
+                className="px-8 py-4 bg-indigo-600 hover:bg-indigo-750 disabled:bg-gray-400 text-white text-xs font-black uppercase tracking-widest rounded-2xl shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+              >
+                {isAppFilesSaving ? "সংরক্ষণ করা হচ্ছে..." : "কনফিগারেশন সেভ করুন 💾"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     );
@@ -9911,6 +10322,7 @@ export default function App() {
                     ...(isSuperAdmin ? ["dashboard"] : []),
                     "orders",
                     "live-chat",
+                    "app-files",
                     "services",
                     "employees",
                     ...(isSuperAdmin ? ["all_users"] : []),
@@ -9932,6 +10344,8 @@ export default function App() {
                           ? "অর্ডারস"
                           : tab === "live-chat"
                             ? "গ্রাহক লাইভ চ্যাট 💬"
+                          : tab === "app-files"
+                            ? "এপ ফাইল 📱"
                             : tab === "services"
                               ? "সার্ভিসসমূহ"
                               : tab === "employees"
@@ -11168,6 +11582,12 @@ export default function App() {
               {adminTab === "live-chat" && (
                 <div className="space-y-4">
                   {renderSupportChatPanel()}
+                </div>
+              )}
+
+              {adminTab === "app-files" && (
+                <div className="space-y-4">
+                  {renderAppFilesAdminPanel()}
                 </div>
               )}
 
@@ -15524,6 +15944,44 @@ export default function App() {
                         </p>
                       </div>
 
+                      {/* Method 1: Direct iOS File / TestFlight Download */}
+                      {(appFilesSettings.iosUrl || appFilesSettings.iosBase64) && (
+                        <div className="bg-gradient-to-br from-indigo-500/5 to-purple-500/5 border border-indigo-500/10 dark:border-white/5 rounded-3xl p-6 relative overflow-hidden">
+                          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                            <div className="space-y-1">
+                              <span className="px-2.5 py-0.5 bg-purple-500/10 text-purple-500 dark:text-purple-300 rounded-full text-[9px] font-black uppercase tracking-widest">
+                                {trans("অপশন ২ (ডাইরেক্ট রিলিজ)", "OPTION 2 (DIRECT RELEASE)")}
+                              </span>
+                              <h4 className="text-sm font-black text-gray-900 dark:text-white mt-1">
+                                {trans("আইওএস (iOS) রিলিজ বা টেস্টফ্লাইট লিঙ্কে যান", "Access direct iOS release")}
+                              </h4>
+                              <p className="text-xs text-gray-400 font-medium">
+                                {trans(
+                                  "এডমিন প্যানেলে আপলোডকৃত আইওএস ইন্সটলেশন প্যাকেজ ডাউনলোড করুন বা অফিশিয়াল টেস্টফ্লাইট চ্যানেলে যুক্ত হোন।",
+                                  "Download custom-built iOS packages or enter TestFlight testing channels configured by administrators."
+                                )}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                addToast("iOS ফাইল ডাউনলোড শুরু হচ্ছে...", "success");
+                                safeDownloadFile(
+                                  appFilesSettings.iosBase64,
+                                  appFilesSettings.iosUrl,
+                                  appFilesSettings.iosFileName || "app.ipa"
+                                );
+                              }}
+                              className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-[11px] uppercase tracking-wider transition-all hover:brightness-110 active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                            >
+                              <Download size={16} />
+                              {trans("আইওএস ডাউনলোড করুন (iOS Download)", "Download iOS File")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Method 2: Detailed iOS Install Guide */}
                       <div className="space-y-4">
                         <div className="flex items-center gap-2">
@@ -18023,25 +18481,49 @@ export default function App() {
                         </div>
                       ) : (
                         customerSupportMessages.map((m) => {
-                          const isRep = m.senderRole === "admin" || m.senderRole === "staff" || m.senderRole === "employee";
+                          const isRep = m.senderRole !== "customer";
                           const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
                           return (
                              <div key={m.id} className={`flex items-start gap-1 p-0.5 ${isRep ? 'justify-start' : 'justify-end'}`}>
-                               <div className={`max-w-[85%] rounded-xl px-3 py-2.5 shadow-xs ${
+                               <div className={`max-w-[85%] rounded-xl px-3 py-2.5 shadow-xs relative group ${
                                  isRep 
                                    ? 'bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/5 text-gray-800 dark:text-gray-150 rounded-tl-none' 
                                    : 'bg-indigo-600 text-white rounded-tr-none'
                                }`}>
-                                 <div className="flex items-center gap-2 justify-between mb-0.5 opacity-60 text-[7px] font-black uppercase">
+                                 <div className="flex items-center gap-2 justify-between mb-0.5 opacity-60 text-[7px] font-black uppercase pr-4">
                                    <span>{isRep ? `প্রতিনিধি (${m.senderName})` : "আমি"}</span>
                                    <span>{timeStr}</span>
                                  </div>
                                  <p className="text-[11px] font-bold font-sans leading-relaxed break-words text-left">{m.text}</p>
+
+                                 {!isRep && (
+                                   <button
+                                     type="button"
+                                     onClick={async () => {
+                                       if (confirm("আপনি কি এই বার্তাটি নিশ্চিতভাবে ডিলিট করতে চান?")) {
+                                         try {
+                                           let currentId = user?.uid || guestSession?.uid;
+                                           if (currentId) {
+                                             await deleteDoc(doc(db, "support_rooms", currentId, "messages", m.id));
+                                             addToast("বার্তাটি সফলভাবে ডিলিট করা হয়েছে।");
+                                           }
+                                         } catch (e) {
+                                           addToast("বার্তা ডিলিট করা সম্ভব হয়নি।");
+                                         }
+                                       }
+                                     }}
+                                     className="absolute right-1 top-1 text-red-400 hover:text-red-500 bg-black/10 dark:bg-white/10 p-1 rounded-md cursor-pointer flex items-center justify-center transition-colors shadow-xs"
+                                     title="বার্তা ডিলিট করুন"
+                                   >
+                                     <Trash2 size={8} />
+                                   </button>
+                                 )}
                                </div>
                              </div>
                           );
                         })
                       )}
+                      <div ref={customerChatEndRef} />
                     </div>
                   </div>
                 )}

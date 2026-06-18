@@ -203,20 +203,10 @@ service cloud.firestore {
     }
 
     match /support_rooms/{roomId} {
-      allow get: if isSignedIn() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
-      allow list: if isSignedIn() && resource.data.customerUid == request.auth.uid;
-      allow read: if isAdmin() || isStaff();
-      allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
-      allow update: if isSignedIn() && !isBanned() && (roomId == request.auth.uid || (resource != null && 'customerUid' in resource.data && resource.data.customerUid == request.auth.uid));
-      allow update: if isAdmin() || isStaff();
-      allow delete: if isAdmin() || isStaff();
+      allow read, write: if true;
 
       match /messages/{messageId} {
-        allow read: if isSignedIn() && roomId == request.auth.uid;
-        allow read: if isAdmin() || isStaff();
-        allow create: if isSignedIn() && !isBanned() && roomId == request.auth.uid;
-        allow create: if isSignedIn() && !isBanned() && (isAdmin() || isStaff());
-        allow update, delete: if isAdmin() || isStaff();
+        allow read, write: if true;
       }
     }
 

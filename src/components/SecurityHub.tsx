@@ -13,45 +13,7 @@ interface SuspiciousActivity {
 }
 
 export const SecurityHub: React.FC = () => {
-  const [logs, setLogs] = useState<SuspiciousActivity[]>([
-    {
-      id: "log_001",
-      userId: "u_mate99",
-      userName: "Abir Hasan",
-      deviceId: "SM-G998B",
-      triggerReason: "Fast Coin Earning (120 coins/min)",
-      timestamp: new Date(Date.now() - 5 * 60000).toLocaleString("bn-BD"),
-      severity: "high",
-      coinsEarned: 120,
-    },
-    {
-      id: "log_002",
-      userId: "u_quick_earn",
-      userName: "Rifat Chowdhury",
-      deviceId: "iPhone14,2",
-      triggerReason: "Ad-Blocker & Script injection attempt",
-      timestamp: new Date(Date.now() - 25 * 60000).toLocaleString("bn-BD"),
-      severity: "high",
-    },
-    {
-      id: "log_003",
-      userId: "u_spammer4",
-      userName: "Tanvir Ahmed",
-      deviceId: "Redmi-Note-11",
-      triggerReason: "Multiple accounts from same IP/Device ID",
-      timestamp: new Date(Date.now() - 65 * 60000).toLocaleString("bn-BD"),
-      severity: "medium",
-    },
-    {
-      id: "log_004",
-      userId: "u_traveler_mock",
-      userName: "Mitu Akter",
-      deviceId: "SM-A528B",
-      triggerReason: "Location Spoofing (Fast GPS travel)",
-      timestamp: new Date(Date.now() - 120 * 60000).toLocaleString("bn-BD"),
-      severity: "low",
-    },
-  ]);
+  const [logs, setLogs] = useState<SuspiciousActivity[]>([]);
 
   const [bannedUsers, setBannedUsers] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);

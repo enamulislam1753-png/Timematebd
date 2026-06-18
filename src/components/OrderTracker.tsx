@@ -261,14 +261,9 @@ export default function OrderTracker({
   };
 
   // Courier representative profile fallback
-  const courierFallbackProfiles = [
-    { name: "শাকিল আহমেদ", phone: "01783-925232", rating: "4.9", vehicle: "TVS Apache" },
-    { name: "জাহিদুল ইসলাম", phone: "01944-884321", rating: "4.8", vehicle: "Suzuki Gixxer" },
-    { name: "মোঃ ইমরান হোসেন", phone: "01511-925838", rating: "4.9", vehicle: "Hero Splendor" }
-  ];
+  const isRiderAssigned = Boolean(order.assignedEmployeeId || order.assignedEmployeeName);
 
-  const courierHash = (order.id ? order.id.charCodeAt(0) + order.id.charCodeAt(order.id.length - 1) : 0) % courierFallbackProfiles.length;
-  const courier = order.assignedEmployeeName
+  const courier = isRiderAssigned
     ? {
         name: order.assignedEmployeeName,
         phone: order.assignedEmployeePhone || "N/A",
@@ -276,26 +271,25 @@ export default function OrderTracker({
         vehicle: order.assignedEmployeeVehicle || "Bike 🏍️",
         photo: order.assignedEmployeePhoto || "",
       }
-    : {
-        ...courierFallbackProfiles[courierHash],
-        photo: "",
-      };
+    : null;
 
   // Determine current active marker coordinates
   const isRiderLive = Boolean(order.riderLat && order.riderLng);
   const isCustomerLive = Boolean(order.customerLat && order.customerLng);
 
-  const riderCoords = {
-    lat: order.riderLat || simulatedCourierLocation.lat,
-    lng: order.riderLng || simulatedCourierLocation.lng
-  };
+  const riderCoords = isRiderAssigned 
+    ? {
+        lat: order.riderLat || simulatedCourierLocation.lat,
+        lng: order.riderLng || simulatedCourierLocation.lng
+      }
+    : null;
 
   const customerCoords = {
     lat: order.customerLat || 23.7771, // fallback to standard customer spot coordinate
     lng: order.customerLng || 90.3994
   };
 
-  const mapCenterCoords = isRiderLive ? riderCoords : (isCustomerLive ? customerCoords : WAREHOUSE_COORDS);
+  const mapCenterCoords = isRiderLive && riderCoords ? riderCoords : (isCustomerLive ? customerCoords : WAREHOUSE_COORDS);
 
   // Dynamic Leaflet Loader and Controller
   const [leafletLoaded, setLeafletLoaded] = useState(false);
@@ -443,14 +437,16 @@ export default function OrderTracker({
       .addTo(mapInstance)
       .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Customer Destination</strong>`);
 
-    markersRef.current.rider = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon })
-      .addTo(mapInstance)
-      .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Delivery Partner (Live Coordinates)</strong>`);
+    if (isRiderAssigned && riderCoords) {
+      markersRef.current.rider = L.marker([riderCoords.lat, riderCoords.lng], { icon: riderIcon })
+        .addTo(mapInstance)
+        .bindPopup(`<strong style="font-family: sans-serif; font-size: 11px;">Delivery Partner (Live Coordinates)</strong>`);
+    }
 
     // Draw nice dashed routing line between stations
     const routePoints = [
       [WAREHOUSE_COORDS.lat, WAREHOUSE_COORDS.lng],
-      [riderCoords.lat, riderCoords.lng],
+      ...(isRiderAssigned && riderCoords ? [[riderCoords.lat, riderCoords.lng]] : []),
       [customerCoords.lat, customerCoords.lng]
     ];
 
@@ -461,7 +457,7 @@ export default function OrderTracker({
       dashArray: "10, 10"
     }).addTo(mapInstance);
 
-  }, [leafletLoaded, mapCenterCoords.lat, mapCenterCoords.lng, riderCoords.lat, riderCoords.lng, customerCoords.lat, customerCoords.lng, hasValidKey]);
+  }, [leafletLoaded, mapCenterCoords.lat, mapCenterCoords.lng, isRiderAssigned, riderCoords?.lat, riderCoords?.lng, customerCoords.lat, customerCoords.lng, hasValidKey]);
 
   return (
     <div id="realtime-order-tracking-dashboard" className="bg-slate-50 dark:bg-slate-900/40 rounded-3xl p-6 border border-gray-200/60 dark:border-white/5 space-y-6">
@@ -573,9 +569,11 @@ export default function OrderTracker({
                 </AdvancedMarker>
 
                 {/* 3. Courier Rider Live Marker */}
-                <AdvancedMarker position={riderCoords} title="কর্মী / রাইডার (Delivery Rider)">
-                  <Pin background="#F59E0B" glyphColor="#fff" glyph="🏍️" scale={1.2} />
-                </AdvancedMarker>
+                {isRiderAssigned && riderCoords && (
+                  <AdvancedMarker position={riderCoords} title="কর্মী / রাইডার (Delivery Rider)">
+                    <Pin background="#F59E0B" glyphColor="#fff" glyph="🏍️" scale={1.2} />
+                  </AdvancedMarker>
+                )}
               </Map>
             </APIProvider>
           </div>
@@ -587,10 +585,12 @@ export default function OrderTracker({
             <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
             🏠 {trans("ওয়্যারহাউস ডিপো", "Warehouse")}
           </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-            🏍️ {isRiderLive ? trans("কর্মী (লাইভ)", "Courier (GPS)") : trans("কর্মী (সিমুলেটেড)", "Courier (Simulated)")}
-          </div>
+          {isRiderAssigned && riderCoords && (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              🏍️ {isRiderLive ? trans("কর্মী (লাইভ)", "Courier (GPS)") : trans("কর্মী (সিমুলেটেড)", "Courier (Simulated)")}
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
             👤 {isCustomerLive ? trans("গ্রাহক (লাইভ)", "Customer (GPS)") : trans("গ্রাহক ঠিকানা", "Customer Base")}
@@ -601,7 +601,7 @@ export default function OrderTracker({
         <div className="z-10 absolute top-3 left-3 p-2 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md rounded-xl border border-gray-150 dark:border-white/5 flex items-center gap-2 shadow-md">
           <Navigation className="text-indigo-500 animate-pulse" size={14} />
           <span className="text-[9px] font-black tracking-tight text-gray-750 dark:text-gray-300 uppercase">
-            {trans("বর্তমান জিপিএস কো-অর্ডিনেট", "Active GPS Coordinates")}: <span className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">{riderCoords.lat.toFixed(4)}° N, {riderCoords.lng.toFixed(4)}° E</span>
+            {trans("বর্তমান জিপিএস কো-অর্ডিনেট", "Active GPS Coordinates")}: <span className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">{riderCoords ? `${riderCoords.lat.toFixed(4)}° N, ${riderCoords.lng.toFixed(4)}° E` : trans("অপেক্ষমান", "Awaiting Assignment")}</span>
           </span>
         </div>
       </div>
@@ -685,7 +685,7 @@ export default function OrderTracker({
       </div>
 
       {/* Courier/Rider Information Card Section */}
-      {!isCancelled && !isCompleted && progress >= 20 && (
+      {!isCancelled && !isCompleted && progress >= 20 && courier && (
         <div className="bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/5 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5 w-full sm:w-auto">
             <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/15 overflow-hidden text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center font-black text-sm shrink-0 border border-gray-100 dark:border-white/10">
