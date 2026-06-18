@@ -86,6 +86,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "qrcode";
+import { BufferedInput, BufferedTextArea } from "./components/BufferedInput";
 import {
   AreaChart,
   Area,
@@ -126,6 +127,7 @@ import OrderTracker from "./components/OrderTracker";
 import { SecurityHub } from "./components/SecurityHub";
 import { CoinEconomy } from "./components/CoinEconomy";
 import { OperationsControl } from "./components/OperationsControl";
+import { AdminAnalyticsPanel, AdminRemindersPanel } from "./components/AdminAnalyticsAndReminders";
 
 // Helper to construct public URL instead of the private dev iframe URL
 const getPublicAppUrl = () => {
@@ -2111,18 +2113,53 @@ export default function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpening, setIsOpening] = useState(true);
+  const [loadingPercent, setLoadingPercent] = useState(0);
+  const [loadingStatusText, setLoadingStatusText] = useState("📡 সংযোগ স্থাপন করা হচ্ছে...");
+  const [reviewsLimit, setReviewsLimit] = useState(12);
+  const [usersLimit, setUsersLimit] = useState(20);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
 
-  // Opening Animation duration
+  // Opening Animation duration & custom loading percentage generator
   useEffect(() => {
+    let current = 0;
+    const interval = setInterval(() => {
+      // Fast start, slow down near end for suspense/elegance
+      const increment = current < 40 
+        ? Math.floor(Math.random() * 8) + 12 
+        : current < 75 
+        ? Math.floor(Math.random() * 5) + 6 
+        : Math.floor(Math.random() * 2) + 1;
+      
+      current = Math.min(100, current + increment);
+      setLoadingPercent(current);
+      
+      if (current < 25) {
+        setLoadingStatusText("📡 ডাবল এনক্রিপটেড সংযোগ স্থাপন...");
+      } else if (current < 55) {
+        setLoadingStatusText("🧠 সাইকোলজিক্যাল প্যাটার্ন ও সময় সুসংগতি...");
+      } else if (current < 85) {
+        setLoadingStatusText("🔐 ওটিপি ও ডিভাইস সিকিউরিটি চেক...");
+      } else if (current < 100) {
+        setLoadingStatusText("⚡ টাইমমেট সেশন সম্পূর্ণ প্রস্তুত করা হচ্ছে...");
+      } else {
+        setLoadingStatusText("🎉 স্বাগতম! টাইমমেট বিডিতে আপনার প্রবেশ নিশ্চিত...");
+        clearInterval(interval);
+      }
+    }, 80);
+
     const timer = setTimeout(() => {
       setIsOpening(false);
+      clearInterval(interval);
       // After animation, if not logged in, show auth modal
       if (!auth.currentUser) {
         setAuthModal({ isOpen: true, mode: "LOGIN" });
       }
-    }, 900);
-    return () => clearTimeout(timer);
+    }, 2600);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   // Form states
@@ -2282,6 +2319,7 @@ export default function App() {
 
   // Admin states
   const [adminTab, setAdminTab] = useState("orders");
+  const [prefilledReminderUserId, setPrefilledReminderUserId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showAdminEmpPassword, setShowAdminEmpPassword] = useState(false);
   const [empFilter, setEmpFilter] = useState<"all" | "verified" | "pending">("all");
@@ -3890,21 +3928,24 @@ export default function App() {
   };
 
   const deleteCoupon = async (id: string) => {
-    if (!isSuperAdmin) {
+    if (!isAdmin) {
       addToast(
-        "অনুমতি নেই - একমাত্র প্রধান এডমিন কোনো কুপন সরিয়ে বা ডিঅ্যাক্টিভেট করতে পারেন।",
+        "অনুমতি নেই - একমাত্র এডমিন কোনো কুপন মুছে ফেলতে পারেন।",
         "error",
       );
       return;
     }
-    try {
-      // Using updateDoc to mark as inactive or deleteDoc
-      // For simplicity, let's just delete
-      await updateDoc(doc(db, "coupons", id), { active: false });
-      addToast("কুপন ডিঅ্যাক্টিভেট করা হয়েছে");
-    } catch (e) {
-      addToast("ব্যর্থ হয়েছে", "error");
-    }
+    customConfirm(
+      "আপনি কি নিশ্চিতভাবে এই কুপনটি চিরতরে ডিলিট করতে চান? এটি আর ফেরত পাওয়া যাবে না।",
+      async () => {
+        try {
+          await deleteDoc(doc(db, "coupons", id));
+          addToast("কুপনটি সফলভাবে ডিলিট করা হয়েছে", "success");
+        } catch (e) {
+          addToast("ডিলিট করতে ব্যর্থ হয়েছে", "error");
+        }
+      }
+    );
   };
 
   const markNotificationRead = async (id: string) => {
@@ -4872,23 +4913,26 @@ export default function App() {
                       </div>
                     </div>
                     
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap justify-end">
                       <button
-                        onClick={async () => {
+                        onClick={() => {
                           const isSpamNow = !(activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam");
-                          if (confirm(isSpamNow ? "এই গ্রাহক সেশনটি কি স্প্যাম/ব্লক তালিকাভুক্ত করতে চান?" : "এই গ্রাহক সেশনটি কি সক্রিয় করতে চান?")) {
-                            try {
-                              await updateDoc(doc(db, "support_rooms", activeSupportRoomId), {
-                                isSpam: isSpamNow,
-                                isBlocked: isSpamNow,
-                                status: isSpamNow ? "spam" : "active"
-                              });
-                              addToast(isSpamNow ? "চ্যাটটি স্প্যাম/ব্লকড হিসেবে চিহ্নিত করা হয়েছে।" : "চ্যাটটি পুনরায় সক্রিয় করা হয়েছে।");
-                              setActiveSupportRoomId(null);
-                            } catch (e) {
-                              addToast("অপারেশন ব্যর্থ হয়েছে।");
+                          customConfirm(
+                            isSpamNow ? "আপনি কি নিশ্চিতভাবে এই কাস্টমার চ্যাট সেশনটি স্প্যাম/ব্লকড তালিকাভুক্ত করতে চান?" : "আপনি কি নিশ্চিতভাবে এই চ্যাট সেশনটি পুনরায় সক্রিয় করতে চান?",
+                            async () => {
+                              try {
+                                await updateDoc(doc(db, "support_rooms", activeSupportRoomId), {
+                                  isSpam: isSpamNow,
+                                  isBlocked: isSpamNow,
+                                  status: isSpamNow ? "spam" : "active"
+                                });
+                                addToast(isSpamNow ? "চ্যাটটি স্প্যাম/ব্লকড হিসেবে চিহ্নিত করা হয়েছে।" : "চ্যাটটি পুনরায় সক্রিয় করা হয়েছে।", "success");
+                                setActiveSupportRoomId(null);
+                              } catch (e) {
+                                addToast("অপারেশন ব্যর্থ হয়েছে।", "error");
+                              }
                             }
-                          }
+                          );
                         }}
                         className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
                           (activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam")
@@ -4900,20 +4944,46 @@ export default function App() {
                       </button>
 
                       <button
-                        onClick={async () => {
-                          if (confirm("এই চ্যাট রুমের সেশন কি সম্পন্ন এবং বন্ধ করতে চান?")) {
-                            try {
-                              await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
-                              setActiveSupportRoomId(null);
-                              addToast("চ্যাট সেশন সমাধানকৃত অবস্তায় বন্ধ করা হয়েছে।");
-                            } catch (e) {
-                              addToast("রুম রিমুভ ব্যর্থ হয়েছে।");
+                        onClick={() => {
+                          customConfirm(
+                            "আপনি কি নিশ্চিতভাবে এই চ্যাট রুমের সেশনটি সম্পন্ন এবং বন্ধ করতে চান?",
+                            async () => {
+                              try {
+                                await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
+                                setActiveSupportRoomId(null);
+                                addToast("চ্যাট সেশন সমাধানকৃত অবস্তায় বন্ধ করা হয়েছে।", "success");
+                              } catch (e) {
+                                addToast("রুম রিমুভ ব্যর্থ হয়েছে।", "error");
+                              }
                             }
-                          }
+                          );
                         }}
-                        className="px-3 py-1.5 bg-red-100 hover:bg-red-500/20 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border border-red-200"
+                        className="px-3 py-1.5 bg-red-100 dark:bg-red-950/40 hover:bg-red-200 text-red-600 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border border-red-200"
                       >
                         রুম বন্ধ করুন ❌
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          customConfirm(
+                            "⚠️ সর্তকতা!\nআপনি কি নিশ্চিত যে আপনি এই পুরো চ্যাট কনভারসেসন এবং এর মধ্যকার সকল মেসেজ চিরতরে ডিলিট করতে চান? এটি আর কোনোভাবেই ফিরিয়ে আনা সম্ভব নয়।",
+                            async () => {
+                              try {
+                                const msgsSnap = await getDocs(collection(db, "support_rooms", activeSupportRoomId, "messages"));
+                                const deletePromises = msgsSnap.docs.map(d => deleteDoc(d.ref));
+                                await Promise.all(deletePromises);
+                                await deleteDoc(doc(db, "support_rooms", activeSupportRoomId));
+                                setActiveSupportRoomId(null);
+                                addToast("পুরো চ্যাট কনভারসেসন এবং সকল মেসেজ সফলভাবে ডিলিট করা হয়েছে!", "success");
+                              } catch (e) {
+                                addToast("কনভারসেসন ডিলিট করা সম্ভব হয়নি।", "error");
+                              }
+                            }
+                          );
+                        }}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shadow shadow-rose-600/10"
+                      >
+                        <Trash2 size={10} /> কনভারসেসন ডিলিট 🗑️
                       </button>
                     </div>
                   </div>
@@ -4932,8 +5002,8 @@ export default function App() {
                           <div key={m.id} className={`flex items-start gap-1 p-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-xs relative group ${
                               isMe 
-                                ? 'bg-indigo-650 text-white rounded-tr-none' 
-                                : 'bg-gray-100 dark:bg-white/5 text-gray-800 dark:text-gray-100 rounded-tl-none'
+                                ? 'bg-indigo-600 text-white rounded-tr-none' 
+                                : 'bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-gray-100 rounded-tl-none'
                             }`}>
                               <div className="flex items-center gap-2 justify-between mb-1 opacity-60 text-[8px] font-black uppercase pr-4">
                                 <span>{m.senderName} ({m.senderRole === "employee" ? "Rider" : m.senderRole === "staff" ? "Staff" : m.senderRole === "admin" ? "Admin" : m.senderRole})</span>
@@ -4944,17 +5014,20 @@ export default function App() {
                               {/* Message Delete Trigger - Styled accessible and visible on both desktop & mobile */}
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  if (confirm("আপনি কি এই বার্তাটি নিশ্চিতভাবে ডিলিট করতে চান?")) {
-                                    try {
-                                      await deleteDoc(doc(db, "support_rooms", activeSupportRoomId, "messages", m.id));
-                                      addToast("বার্তাটি সফলভাবে ডিলিট করা হয়েছে।");
-                                    } catch (e) {
-                                      addToast("বার্তা ডিলিট করা সম্ভব হয়নি।");
+                                onClick={() => {
+                                  customConfirm(
+                                    "আপনি কি নিশ্চিতভাবে এই বার্তাটি ডিলিট করতে চান?",
+                                    async () => {
+                                      try {
+                                        await deleteDoc(doc(db, "support_rooms", activeSupportRoomId, "messages", m.id));
+                                        addToast("বার্তাটি সফলভাবে ডিলিট করা হয়েছে।", "success");
+                                      } catch (e) {
+                                        addToast("বার্তা ডিলিট করা সম্ভব হয়নি।", "error");
+                                      }
                                     }
-                                  }
+                                  );
                                 }}
-                                className="absolute right-1 top-1 text-red-400 hover:text-red-650 bg-black/10 dark:bg-white/10 p-1 rounded-md cursor-pointer flex items-center justify-center transition-colors"
+                                className="absolute right-1 top-1 text-red-400 hover:text-red-650 bg-black/15 dark:bg-white/10 p-1 rounded-md cursor-pointer flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
                                 title="বার্তা ডিলিট করুন"
                               >
                                 <Trash2 size={10} />
@@ -5479,8 +5552,20 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${isDarkMode ? "dark bg-[#0a0a1a] text-white" : "bg-[#FAFAF6] text-slate-900"}`}
+      className={`min-h-screen relative overflow-hidden transition-colors duration-500 ${isDarkMode ? "dark bg-[#060612] text-white" : "bg-[#f8fafc] text-slate-900"}`}
     >
+      {/* Universal Branded Ambient Background Theme (TimeMate Royal Aura) */}
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden select-none select-none">
+        {/* Soft floating light gradient portals */}
+        <div className="absolute top-[-10%] left-[-5%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent blur-[120px] dark:from-indigo-950/25 dark:via-purple-900/10 dark:to-transparent animate-pulse duration-7000" />
+        <div className="absolute bottom-[-15%] right-[-5%] w-[55vw] h-[55vw] rounded-full bg-gradient-to-tr from-sky-500/10 via-indigo-500/5 to-transparent blur-[140px] dark:from-sky-950/20 dark:via-indigo-950/10 dark:to-transparent animate-pulse duration-8000" />
+        <div className="absolute top-[35%] right-[5%] w-[35vw] h-[35vw] rounded-full bg-indigo-505/5 blur-[100px] dark:bg-purple-950/15 animate-pulse duration-9000" />
+        <div className="absolute bottom-[35%] left-[5%] w-[30vw] h-[30vw] rounded-full bg-purple-505/5 blur-[90px] dark:bg-blue-950/10 animate-pulse duration-10000" />
+
+        {/* TIME ORBITS: Fine tech geometric grid overlay lines representing clock precision and schedules */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:40px_40px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.015)_1px,transparent_1px)] dark:bg-[size:48px_48px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
+      </div>
+
       <AnimatePresence mode="popLayout">
         {isOpening && (
           <motion.div
@@ -5488,45 +5573,146 @@ export default function App() {
             initial={{ opacity: 1 }}
             exit={{
               opacity: 0,
-              scale: 0.8,
-              filter: "blur(20px)",
-              transition: { duration: 0.8, ease: [0.4, 0, 0.2, 1] },
+              scale: 1.05,
+              filter: "blur(25px)",
+              transition: { duration: 0.9, ease: [0.4, 0, 0.2, 1] },
             }}
-            className="fixed inset-0 z-[99999] bg-gradient-to-br from-[#004c8c] to-[#002544] flex flex-col items-center justify-center overflow-hidden"
+            className="fixed inset-0 z-[99999] bg-[#020211] flex flex-col items-center justify-center overflow-hidden"
           >
-            <div className="flex flex-col items-center">
-              <motion.div
-                layoutId="app-logo-box"
-                className="mb-8"
-              >
-                <TimeMateBDLogo size={112} className="shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:scale-105 transition-transform" />
-              </motion.div>
+            {/* Ambient Background Glow Particles (Psychological Healing Visuals) */}
+            <motion.div 
+              animate={{ 
+                scale: [1, 1.15, 1],
+                x: [0, 15, 0],
+                y: [0, -10, 0]
+              }}
+              transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+              className="absolute w-[24rem] h-[24rem] rounded-full bg-indigo-600/15 blur-[100px] -top-12 -left-12"
+            />
+            <motion.div 
+              animate={{ 
+                scale: [1, 1.2, 1],
+                x: [0, -20, 0],
+                y: [0, 15, 0]
+              }}
+              transition={{ repeat: Infinity, duration: 10, ease: "easeInOut", delay: 1 }}
+              className="absolute w-[28rem] h-[28rem] rounded-full bg-blue-600/10 blur-[120px] -bottom-16 -right-16"
+            />
 
+            <div className="flex flex-col items-center relative z-10">
+              {/* Concentric Geometric Time Orbit Rings */}
+              <div className="relative w-72 h-72 flex items-center justify-center mb-8">
+                {/* Outer dotted ring */}
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 24, ease: "linear" }}
+                  className="absolute w-72 h-72 rounded-full border border-dashed border-white/5"
+                />
+                
+                {/* Middle dashed ring */}
+                <motion.div 
+                  animate={{ rotate: -360 }}
+                  transition={{ repeat: Infinity, duration: 16, ease: "linear" }}
+                  className="absolute w-56 h-56 rounded-full border border-dashed border-indigo-500/10"
+                />
+
+                {/* Inner glowing ring */}
+                <motion.div 
+                  animate={{ 
+                    rotate: 360,
+                    scale: [1, 1.05, 1],
+                    borderColor: ["rgba(99,102,241,0.1)", "rgba(99,102,241,0.25)", "rgba(99,102,241,0.1)"]
+                  }}
+                  transition={{ 
+                    rotate: { repeat: Infinity, duration: 10, ease: "linear" },
+                    scale: { repeat: Infinity, duration: 4, ease: "easeInOut" },
+                    borderColor: { repeat: Infinity, duration: 4, ease: "easeInOut" }
+                  }}
+                  className="absolute w-40 h-40 rounded-full border-2 border-indigo-500/10"
+                />
+
+                {/* Sparkling tiny orbiting photon */}
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 6, ease: "linear" }}
+                  className="absolute w-40 h-40"
+                >
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_12px_#38bdf8]" />
+                </motion.div>
+
+                {/* The central logo with premium floating & scale motion */}
+                <motion.div
+                  animate={{ 
+                    y: [0, -6, 0],
+                    scale: [1, 1.02, 1]
+                  }}
+                  transition={{ 
+                    repeat: Infinity,
+                    duration: 4, 
+                    ease: "easeInOut"
+                  }}
+                  layoutId="app-logo-box"
+                  className="relative z-10"
+                >
+                  <TimeMateBDLogo size={115} className="shadow-[0_24px_60px_rgba(0,0,0,0.6)] rounded-3xl" />
+                </motion.div>
+              </div>
+
+              {/* Textual presentation with stagger/delay reveals */}
               <motion.div
-                initial={{ y: 20, opacity: 0 }}
+                initial={{ y: 15, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.5, duration: 0.8 }}
+                transition={{ duration: 0.8 }}
                 className="text-center"
               >
-                <h1 className="text-white text-5xl md:text-7xl font-black italic tracking-tighter uppercase mb-2">
+                <h1 className="text-white text-4xl md:text-5xl font-black italic tracking-tighter uppercase mb-2">
                   TimeMate BD
                 </h1>
-                <p className="text-indigo-200/80 text-[10px] md:text-xs font-bold uppercase tracking-[0.3em] mb-4">
+                <p className="text-indigo-200/50 text-[10px] md:text-[11px] font-black uppercase tracking-[0.25em] mb-6">
                   আপনার সময়ের সেরা সঙ্গী
                 </p>
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: "120px" }}
-                  transition={{ delay: 1, duration: 0.8 }}
-                  className="h-1.5 bg-gradient-to-r from-indigo-300 to-white rounded-full mx-auto"
-                />
+
+                {/* Highly Sophisticated Premium Loading Panel */}
+                <div className="max-w-[280px] mx-auto space-y-3 font-sans">
+                  {/* Glowing percentage score */}
+                  <div className="flex items-center justify-between text-[11px] font-bold text-indigo-300 tracking-wider">
+                    <span className="opacity-70 uppercase">SYSTEM ALIGNMENT</span>
+                    <span className="font-mono text-xs text-sky-400 drop-shadow-[0_0_4px_rgba(56,189,248,0.3)] bg-sky-955/20 px-1.5 py-0.5 rounded">
+                      {loadingPercent}%
+                    </span>
+                  </div>
+
+                  {/* Fully functional customized glowing loader progress bar */}
+                  <div className="w-64 h-[5px] bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
+                    <div 
+                      style={{ width: `${loadingPercent}%` }}
+                      className="h-full bg-gradient-to-r from-indigo-505 via-sky-405 to-emerald-405 rounded-full transition-all duration-100 ease-out shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+                    />
+                  </div>
+
+                  {/* Ticking active logging texts with subtle shimmer effect */}
+                  <div className="h-6 flex items-center justify-center">
+                    <motion.p
+                      key={loadingStatusText}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-[10px] font-bold text-gray-400 tracking-wide truncate max-w-[240px] text-center"
+                    >
+                      {loadingStatusText}
+                    </motion.p>
+                  </div>
+                </div>
+
+                {/* Subtle, elegant branding text at the very bottom */}
                 <motion.p
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 0.9, y: 0 }}
-                  transition={{ delay: 1.4, duration: 1 }}
-                  className="text-white/90 text-[11px] font-black uppercase tracking-[0.5em] mt-6"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.7 }}
+                  transition={{ delay: 0.8, duration: 1 }}
+                  className="text-white/40 text-[9px] font-mono tracking-[0.4em] uppercase mt-4"
                 >
-                  Your Time Our Value
+                  Your Time · Our Value
                 </motion.p>
               </motion.div>
             </div>
@@ -5597,7 +5783,7 @@ export default function App() {
               <form onSubmit={handleAuth} className="space-y-4">
                 {authModal.mode === "REGISTER" && (
                   <>
-                    <input
+                    <BufferedInput
                       id="auth-name"
                       type="text"
                       value={authNameInput}
@@ -5606,7 +5792,7 @@ export default function App() {
                       className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-sm"
                       required
                     />
-                    <input
+                    <BufferedInput
                       id="auth-phone"
                       type="tel"
                       value={authPhoneInput}
@@ -5617,7 +5803,7 @@ export default function App() {
                     />
                   </>
                 )}
-                <input
+                <BufferedInput
                   id="auth-email"
                   type="email"
                   value={authEmailInput}
@@ -5629,7 +5815,7 @@ export default function App() {
 
                 {authModal.mode !== "FORGOT" && (
                   <div className="relative">
-                    <input
+                    <BufferedInput
                       id="auth-pass"
                       type={showPassword ? "text" : "password"}
                       value={authPasswordInput}
@@ -6362,10 +6548,10 @@ export default function App() {
                         onClick={() => setIsNotificationOpen(false)}
                       />
                       <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        initial={{ opacity: 0, scale: 0.98, y: -5 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                        transition={{ duration: 0.15 }}
+                        exit={{ opacity: 0, scale: 0.98, y: -5 }}
+                        transition={{ type: "tween", duration: 0.05, ease: "easeOut" }}
                         className="fixed md:absolute top-16 md:top-12 left-1/2 md:left-auto right-auto md:right-0 -translate-x-1/2 md:translate-x-0 w-[calc(100vw-2rem)] md:w-85 max-w-[350px] bg-white dark:bg-[#0f172a] rounded-3xl shadow-2xl border border-gray-250 dark:border-white/10 overflow-hidden z-[60] select-none"
                       >
                         <div className="p-4 border-b border-gray-150 dark:border-white/10 flex justify-between items-center bg-gray-50 dark:bg-white/5">
@@ -6494,26 +6680,129 @@ export default function App() {
                                   className="flex-1 cursor-pointer"
                                   onClick={() => {
                                     markNotificationRead(n.id);
+                                    setIsNotificationOpen(false);
+
+                                    const titleStr = n.title || "";
+                                    const msgStr = n.message || "";
+
+                                    // 1. Support / Chat notifications (Check first to capture support updates)
                                     if (
-                                      n.type === "order" ||
-                                      n.title.includes("পেমেন্ট")
+                                      n.type === "support" ||
+                                      titleStr.includes("সাপোর্ট") ||
+                                      titleStr.includes("মেসেজ") ||
+                                      msgStr.includes("সাপোর্ট") ||
+                                      msgStr.includes("মেসেজ") ||
+                                      msgStr.includes("চ্যাট")
                                     ) {
-                                      setActiveSection("myorders");
-                                      setIsNotificationOpen(false);
-                                      if (n.orderId) {
-                                        const targetOrder = orders.find(
-                                          (o) => o.id === n.orderId,
-                                        );
-                                        if (
-                                          targetOrder &&
-                                          targetOrder.status ===
-                                            "মূল্য নির্ধারণ"
-                                        ) {
-                                          setPaymentModal({
-                                            isOpen: true,
-                                            order: targetOrder,
-                                          });
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("live-chat");
+                                      } else {
+                                        setIsSupportWidgetOpen(true);
+                                        setIsSupportMenuOpen(false);
+                                      }
+                                    }
+                                    // 2. Order / Payment notifications
+                                    else if (
+                                      n.type === "order" ||
+                                      titleStr.includes("অর্ডার") ||
+                                      titleStr.includes("পেমেন্ট") ||
+                                      msgStr.includes("অর্ডার") ||
+                                      msgStr.includes("পেমেন্ট")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("orders");
+                                      } else {
+                                        setActiveSection("myorders");
+                                        if (n.orderId) {
+                                          const targetOrder = orders.find((o) => o.id === n.orderId);
+                                          if (targetOrder) {
+                                            setSelectedOrder(targetOrder);
+                                            if (targetOrder.status === "মূল্য নির্ধারণ") {
+                                              setPaymentModal({
+                                                isOpen: true,
+                                                order: targetOrder,
+                                              });
+                                            }
+                                          }
                                         }
+                                      }
+                                    }
+                                    // 3. Coins / Token / Finance notifications
+                                    else if (
+                                      n.type === "coins" ||
+                                      titleStr.includes("কয়েন") ||
+                                      titleStr.includes("টোকেন") ||
+                                      titleStr.includes("রিচার্জ") ||
+                                      msgStr.includes("কয়েন") ||
+                                      msgStr.includes("পয়েন্ট")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("coins");
+                                      } else {
+                                        setActiveSection("profile");
+                                      }
+                                    }
+                                    // 4. Employees & Registrations
+                                    else if (
+                                      titleStr.includes("কর্মী") ||
+                                      titleStr.includes("টিম") ||
+                                      msgStr.includes("কর্মী")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("employees");
+                                      }
+                                    }
+                                    // 5. Reviews
+                                    else if (
+                                      titleStr.includes("রিভিউ") ||
+                                      msgStr.includes("রিভিউ")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("reviews");
+                                      } else {
+                                        setActiveSection("profile");
+                                      }
+                                    }
+                                    // 6. Reminders
+                                    else if (
+                                      n.type === "reminders" ||
+                                      titleStr.includes("রিমাইন্ডার") ||
+                                      msgStr.includes("রিমাইন্ডার")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("reminders");
+                                      } else {
+                                        setActiveSection("myorders");
+                                      }
+                                    }
+                                    // 7. Promo / Coupons / Offers
+                                    else if (
+                                      n.type === "promo" ||
+                                      titleStr.includes("কুপন") ||
+                                      titleStr.includes("উপহার") ||
+                                      titleStr.includes("অফার") ||
+                                      msgStr.includes("কুপন")
+                                    ) {
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("coupons");
+                                      } else {
+                                        setActiveSection("profile");
+                                      }
+                                    }
+                                    else {
+                                      // Default fallback
+                                      if (profile?.role === "admin" || profile?.role === "staff") {
+                                        setActiveSection("admin");
+                                        setAdminTab("dashboard");
+                                      } else {
+                                        setActiveSection("myorders");
                                       }
                                     }
                                   }}
@@ -7858,8 +8147,8 @@ export default function App() {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         {trans("আপনার নাম", "Your Name")}
                       </label>
-                      <input
-                        value={orderForm.name}
+                      <BufferedInput
+                        value={orderForm.name || ""}
                         onChange={(e) =>
                           setOrderForm({ ...orderForm, name: e.target.value })
                         }
@@ -7871,8 +8160,8 @@ export default function App() {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                         {trans("মোবাইল নম্বর", "Mobile Number")}
                       </label>
-                      <input
-                        value={orderForm.phone}
+                      <BufferedInput
+                        value={orderForm.phone || ""}
                         onChange={(e) =>
                           setOrderForm({ ...orderForm, phone: e.target.value })
                         }
@@ -7885,8 +8174,8 @@ export default function App() {
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                       {trans("ঠিকানা (ঐচ্ছিক)", "Address (Optional)")}
                     </label>
-                    <input
-                      value={orderForm.address}
+                    <BufferedInput
+                      value={orderForm.address || ""}
                       onChange={(e) =>
                         setOrderForm({ ...orderForm, address: e.target.value })
                       }
@@ -7898,8 +8187,8 @@ export default function App() {
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                       {trans("বিশেষ নির্দেশনা", "Special Instructions")}
                     </label>
-                    <textarea
-                      value={orderForm.note}
+                    <BufferedTextArea
+                      value={orderForm.note || ""}
                       onChange={(e) =>
                         setOrderForm({ ...orderForm, note: e.target.value })
                       }
@@ -7911,8 +8200,8 @@ export default function App() {
                     <label className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
                       <Tag size={12} /> {trans("কুপন কোড (যদি থাকে)", "Coupon Code (If any)")}
                     </label>
-                    <input
-                      value={orderForm.coupon}
+                    <BufferedInput
+                      value={orderForm.coupon || ""}
                       onChange={(e) =>
                         setOrderForm({ ...orderForm, coupon: e.target.value })
                       }
@@ -7969,8 +8258,8 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("আপনার নাম", "Your Name")}</label>
-                        <input
-                          value={courierForm.sName}
+                        <BufferedInput
+                          value={courierForm.sName || ""}
                           onChange={(e) => setCourierForm({ ...courierForm, sName: e.target.value })}
                           placeholder={trans("প্রেরকের নাম লিখুন", "Sender name")}
                           className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
@@ -7978,8 +8267,8 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("মোবাইল নম্বর", "Mobile Number")}</label>
-                        <input
-                          value={courierForm.sPhone}
+                        <BufferedInput
+                          value={courierForm.sPhone || ""}
                           onChange={(e) => setCourierForm({ ...courierForm, sPhone: e.target.value })}
                           placeholder="017XXXXXXXX"
                           className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-mono font-medium"
@@ -7996,8 +8285,8 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("প্রাপকের নাম", "Recipient Name")}</label>
-                        <input
-                          value={courierForm.rName}
+                        <BufferedInput
+                          value={courierForm.rName || ""}
                           onChange={(e) => setCourierForm({ ...courierForm, rName: e.target.value })}
                           placeholder={trans("প্রাপকের নাম", "Recipient's Name")}
                           className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium"
@@ -8005,8 +8294,8 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("মোবাইল নম্বর", "Mobile")}</label>
-                        <input
-                          value={courierForm.rPhone}
+                        <BufferedInput
+                          value={courierForm.rPhone || ""}
                           onChange={(e) => setCourierForm({ ...courierForm, rPhone: e.target.value })}
                           placeholder="017XXXXXXXX"
                           className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-mono font-medium"
@@ -8014,8 +8303,8 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{trans("বিস্তারিত ঠিকানা", "Detail Address")}</label>
-                        <textarea
-                          value={courierForm.rAddr}
+                        <BufferedTextArea
+                          value={courierForm.rAddr || ""}
                           onChange={(e) => setCourierForm({ ...courierForm, rAddr: e.target.value })}
                           placeholder={trans("প্রাপকের ডেলিভারি ঠিকানা লিখুন", "Recipient's Delivery Address")}
                           className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-slate-950/50 border border-gray-200 dark:border-white/10 outline-none text-xs text-gray-900 dark:text-white font-medium h-20 resize-none"
@@ -9425,7 +9714,7 @@ export default function App() {
                         }}
                         className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 border cursor-pointer active:scale-95 ${
                           isFree
-                            ? "bg-indigo-650 hover:bg-indigo-700 text-white border-indigo-650 shadow-lg shadow-indigo-500/10"
+                            ? "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600 shadow-lg shadow-indigo-500/10"
                             : "bg-amber-500/10 dark:bg-amber-500/5 hover:bg-amber-500/15 text-amber-600 border-amber-500/20"
                         }`}
                       >
@@ -10321,6 +10610,8 @@ export default function App() {
                   {[
                     ...(isSuperAdmin ? ["dashboard"] : []),
                     "orders",
+                    "order-analytics",
+                    "reminders",
                     "live-chat",
                     "app-files",
                     "services",
@@ -10342,8 +10633,12 @@ export default function App() {
                         ? "ড্যাশবোর্ড"
                         : tab === "orders"
                           ? "অর্ডারস"
-                          : tab === "live-chat"
-                            ? "গ্রাহক লাইভ চ্যাট 💬"
+                          : tab === "order-analytics"
+                            ? "হাইইস্ট অর্ডার আইডি 📊"
+                            : tab === "reminders"
+                              ? "ইউজার রিমাইন্ডারস ⏰"
+                              : tab === "live-chat"
+                                ? "গ্রাহক লাইভ চ্যাট 💬"
                           : tab === "app-files"
                             ? "এপ ফাইল 📱"
                             : tab === "services"
@@ -11579,6 +11874,70 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === "order-analytics" && (
+                <div className="space-y-6">
+                  <AdminAnalyticsPanel 
+                    orders={orders} 
+                    allUsers={allUsers} 
+                    addToast={addToast} 
+                    trans={trans} 
+                    onNavigateToChat={async (uid, name, phone) => {
+                      const existing = supportRooms.find(r => r.customerUid === uid || r.id === uid);
+                      if (existing) {
+                        setActiveSupportRoomId(existing.id);
+                        setAdminTab("live-chat");
+                        addToast("সরাসরি চ্যাটরুম ওপেন করা হয়েছে।", "success");
+                      } else {
+                        try {
+                          await setDoc(doc(db, "support_rooms", uid), {
+                            id: uid,
+                            customerUid: uid,
+                            customerName: name,
+                            customerPhone: phone || "N/A",
+                            customerEmail: "user@timemate.bd",
+                            isGuest: false,
+                            lastMessage: "এডমিন চ্যাট সেশন শুরু করেছেন।",
+                            lastMessageTime: new Date().toISOString(),
+                            unreadCount: 1,
+                            status: "open"
+                          });
+                          await addDoc(collection(db, "support_rooms", uid, "messages"), {
+                            senderId: "system",
+                            senderName: "সিস্টেম",
+                            senderRole: "system",
+                            text: `প্রিয় ${name}, আমাদের এডমিন আপনার সাথে সরাসরি চ্যাট সেশন শুরু করেছেন। আপনার জিজ্ঞাসা এখানে করতে পারেন।`,
+                            timestamp: new Date().toISOString()
+                          });
+                          setActiveSupportRoomId(uid);
+                          setAdminTab("live-chat");
+                          addToast("নতুন কাস্টমার চ্যাটরুম তৈরি ও ওপেন করা হয়েছে!", "success");
+                        } catch (err) {
+                          setAdminTab("live-chat");
+                          addToast("চ্যাটরুম চালু করতে সমস্যা হয়েছে।", "error");
+                        }
+                      }
+                    }}
+                    onNavigateToReminder={(uid) => {
+                      setPrefilledReminderUserId(uid);
+                      setAdminTab("reminders");
+                      addToast("কাস্টমার তথ্য নিয়ে রিমাইন্ডার উইন্ডো লোড করা হয়েছে!", "success");
+                    }}
+                  />
+                </div>
+              )}
+
+              {adminTab === "reminders" && (
+                <div className="space-y-6">
+                  <AdminRemindersPanel 
+                    orders={orders} 
+                    allUsers={allUsers} 
+                    addToast={addToast} 
+                    trans={trans} 
+                    prefilledUserId={prefilledReminderUserId || undefined}
+                  />
+                </div>
+              )}
+
               {adminTab === "live-chat" && (
                 <div className="space-y-4">
                   {renderSupportChatPanel()}
@@ -12461,44 +12820,51 @@ export default function App() {
 
               {adminTab === "reviews" && (
                 <div className="bg-white dark:bg-[#0f172a] rounded-[2rem] shadow-sm border border-gray-100 dark:border-white/5 p-6">
-                  <h3 className="text-xl font-black mb-4 italic">
-                    CUSTOMERS REVIEWS
-                  </h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-black italic">
+                      CUSTOMERS REVIEWS ({reviews.length})
+                    </h3>
+                    <span className="text-xs text-indigo-505 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-900/40 px-3/1.5 rounded-full font-mono">
+                      Showing {Math.min(reviews.length, reviewsLimit)} of {reviews.length}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {reviews.length === 0 ? (
                       <p className="text-gray-400 text-xs italic">
                         কোনো রিভিউ পাওয়া যায়নি
                       </p>
                     ) : (
-                      reviews.map((r, i) => (
+                      reviews.slice(0, reviewsLimit).map((r, i) => (
                         <div
-                          key={i}
-                          className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5"
+                          key={r.id || i}
+                          className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-white/5 flex flex-col justify-between"
                         >
-                          <div className="flex items-center gap-2 mb-2 text-amber-500">
-                            {Array.from({ length: 5 }).map((_, j) => (
-                              <Star
-                                key={j}
-                                size={12}
-                                fill={j < r.rating ? "currentColor" : "none"}
-                              />
-                            ))}
+                          <div>
+                            <div className="flex items-center gap-2 mb-2 text-amber-500">
+                              {Array.from({ length: 5 }).map((_, j) => (
+                                <Star
+                                  key={j}
+                                  size={12}
+                                  fill={j < r.rating ? "currentColor" : "none"}
+                                />
+                              ))}
+                            </div>
+                            <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
+                              {r.comment || r.text}
+                            </p>
                           </div>
-                          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
-                            {r.comment || r.text}
-                          </p>
                           <div className="mt-3 flex items-center justify-between">
                             <p className="text-[10px] text-gray-500 font-bold uppercase">
-                              — {r.userName || r.name}
+                              — {r.userName || r.name || "সম্মানিত গ্রাহক"}
                             </p>
                             <p className="text-[9px] text-gray-400 italic">
                               Verified Customer
                             </p>
                             <button
                               onClick={() => {
-                                if (!isSuperAdmin) {
+                                if (!isAdmin) {
                                   addToast(
-                                    "অনুমতি নেই - একমাত্র প্রধান এডমিন রিভিউ ডিলিট করতে পারবেন।",
+                                    "অনুমতি নেই - একমাত্র এডমিন রিভিউ ডিলিট করতে পারবেন।",
                                     "error",
                                   );
                                   return;
@@ -12521,7 +12887,7 @@ export default function App() {
                                   },
                                 );
                               }}
-                              className="text-red-400 hover:text-red-600 ml-2"
+                              className="text-red-400 hover:text-red-600 ml-2 cursor-pointer active:scale-90 transition-all"
                             >
                               <Trash2 size={12} />
                             </button>
@@ -12530,6 +12896,16 @@ export default function App() {
                       ))
                     )}
                   </div>
+                  {reviews.length > reviewsLimit && (
+                    <div className="flex justify-center mt-6">
+                      <button
+                        onClick={() => setReviewsLimit((prev) => prev + 12)}
+                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl transition-all active:scale-95 shadow-lg shadow-indigo-500/10 cursor-pointer uppercase tracking-wider"
+                      >
+                        🗣️ আরো রিভিউ লোড করুন (Load More Reviews)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -13488,9 +13864,9 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                if (!isSuperAdmin) {
+                                if (!isAdmin) {
                                   addToast(
-                                    "অনুমতি নেই - একমাত্র প্রধান এডমিন ঘোষণা মুছে ফেলতে পারবেন।",
+                                    "অনুমতি নেই - একমাত্র এডমিন ঘোষণা মুছে ফেলতে পারবেন।",
                                     "error",
                                   );
                                   return;
@@ -13502,7 +13878,7 @@ export default function App() {
                                       await deleteDoc(
                                         doc(db, "announcements", ann.id),
                                       );
-                                      addToast("ঘোষণা সফলভাবে সরানো হয়েছে!");
+                                      addToast("ঘোষণা সফলভাবে সরানো হয়েছে!", "success");
                                     } catch (err) {
                                       addToast("সরানো ব্যর্থ হয়েছে", "error");
                                     }
@@ -13745,7 +14121,7 @@ export default function App() {
                               addToast("সেটআপ ব্যর্থ হয়েছে", "error");
                             }
                           }}
-                          className="px-3 py-1.5 bg-indigo-600/10 hover:bg-indigo-650 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-450 text-[10px] font-bold rounded-xl active:scale-95 transition-all flex items-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                          className="px-3 py-1.5 bg-indigo-600/10 hover:bg-indigo-700/20 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-450 text-[10px] font-bold rounded-xl active:scale-95 transition-all flex items-center gap-1.5 uppercase tracking-wider cursor-pointer"
                         >
                           ✨ ডিফল্ট সার্ভিস ডাটাবেজে সেটআপ করুন
                         </button>
@@ -14333,7 +14709,7 @@ export default function App() {
                             );
                           }
 
-                          return filtered.map((u, i) => (
+                          return filtered.slice(0, usersLimit).map((u, i) => (
                             <tr key={u.uid} className="hover:bg-gray-50/50 dark:hover:bg-white/2 transition-all">
                               <td className="py-4 px-3 text-center font-mono font-bold text-gray-400">
                                 {i + 1}
@@ -14457,6 +14833,16 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  {allUsers.length > usersLimit && (
+                    <div className="flex justify-center mt-4 border-t border-gray-100 dark:border-white/5 pt-4">
+                      <button
+                        onClick={() => setUsersLimit((prev) => prev + 20)}
+                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl transition-all active:scale-95 shadow-md shadow-indigo-500/10 cursor-pointer uppercase tracking-wider font-sans"
+                      >
+                        👥 আরো ইউজার লোড করুন (Load More Users)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -16861,7 +17247,7 @@ export default function App() {
                           key={amount}
                           type="button"
                           onClick={() => setCoinsToCashout(amount)}
-                          className={`py-2 rounded-xl text-[10px] font-black transition-all ${coinsToCashout === amount ? "bg-amber-500/20 border-2 border-amber-500 text-amber-600" : "bg-gray-50 dark:bg-white/5 border border-transparent text-gray-550"}`}
+                          className={`py-2 rounded-xl text-[10px] font-black transition-all ${coinsToCashout === amount ? "bg-amber-500/20 border-2 border-amber-500 text-amber-600" : "bg-gray-50 dark:bg-white/5 border border-transparent text-gray-500"}`}
                         >
                           🪙 {amount}
                         </button>
@@ -16869,7 +17255,7 @@ export default function App() {
                     </div>
 
                     <div className="bg-emerald-500/5 border border-emerald-500/10 p-3.5 rounded-xl flex items-center justify-between text-xs dark:text-white">
-                      <span className="font-bold text-gray-450 uppercase tracking-wider text-[10px]">
+                      <span className="font-bold text-gray-500 uppercase tracking-wider text-[10px]">
                         পেমেন্ট হিসেবে ক্লেইম পাবেন:
                       </span>
                       <span className="font-black text-emerald-500 text-sm">
@@ -16889,7 +17275,7 @@ export default function App() {
                                 key={method}
                                 type="button"
                                 onClick={() => setCashoutMethod(method as any)}
-                                className={`py-2.5 rounded-xl text-[10px] font-black tracking-wider uppercase transition-all ${cashoutMethod === method ? "bg-indigo-600 text-white shadow-md" : "bg-gray-50 dark:bg-white/5 text-gray-550"}`}
+                                className={`py-2.5 rounded-xl text-[10px] font-black tracking-wider uppercase transition-all ${cashoutMethod === method ? "bg-indigo-600 text-white shadow-md" : "bg-gray-50 dark:bg-white/5 text-gray-500"}`}
                               >
                                 {method}
                               </button>
@@ -16900,8 +17286,7 @@ export default function App() {
 
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                          রিসিভার পার্সোনাল মোবাইল নম্বর (Receiver Account
-                          Number)
+                          রিসিভার পার্সোনাল মোবাইল নম্বর (Receiver Account Number)
                         </label>
                         <input
                           type="tel"
@@ -17289,7 +17674,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => setIsFullTradingScreen(true)}
-                            className="bg-indigo-650 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-md shadow-indigo-500/10 whitespace-nowrap"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-md shadow-indigo-500/10 whitespace-nowrap"
                             title="ফুল স্ক্রিন ট্রেড করুন"
                           >
                             <Maximize2 size={10} /> ফুল স্ক্রিন
@@ -18450,7 +18835,7 @@ export default function App() {
 
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow transition-all cursor-pointer active:scale-95"
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest shadow transition-all cursor-pointer active:scale-95"
                     >
                       চ্যাট শুরু করুন 👉
                     </button>

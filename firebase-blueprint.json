@@ -239,6 +239,24 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["text", "sender", "timestamp"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Custom psychological user reminders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "triggeredCount": { "type": "number" },
+        "scheduledTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "sent", "read", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "message", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -297,6 +315,10 @@
     "/employees/{employeeId}": {
       "schema": "Employee",
       "description": "Employee applications and registry"
+    },
+    "/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Admin Scheduled or Automated Reminders for users"
     }
   }
 }

@@ -219,12 +219,12 @@ service cloud.firestore {
 
     match /announcements/{announcementId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isStaff();
     }
 
     match /system/{docId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isStaff();
     }
 
     match /services/{serviceId} {
@@ -239,6 +239,12 @@ service cloud.firestore {
       allow update: if isSignedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
       allow update: if isAdmin() || isStaff();
       allow delete: if isAdmin() || isStaff();
+    }
+
+    match /reminders/{reminderId} {
+      allow read, write: if isAdmin() || isStaff();
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
     }
 
     match /orders/{orderId}/chats/{messageId} {
