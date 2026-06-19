@@ -2491,6 +2491,7 @@ export default function App() {
     iosFileName: string;
     apkBase64: string;
     iosBase64: string;
+    isEnabled: boolean;
   }>({
     apkUrl: "",
     iosUrl: "",
@@ -2498,6 +2499,7 @@ export default function App() {
     iosFileName: "",
     apkBase64: "",
     iosBase64: "",
+    isEnabled: true,
   });
   const [apkFormState, setApkFormState] = useState({ url: "", base64: "", fileName: "" });
   const [iosFormState, setIosFormState] = useState({ url: "", base64: "", fileName: "" });
@@ -3271,6 +3273,7 @@ export default function App() {
             iosFileName: data.iosFileName || "",
             apkBase64: data.apkBase64 || "",
             iosBase64: data.iosBase64 || "",
+            isEnabled: data.isEnabled !== false,
           });
         }
       },
@@ -3664,7 +3667,7 @@ export default function App() {
     if (allReviews.length === 0) return;
     const interval = setInterval(() => {
       setCurrentReviewIndex((prev) => (prev + 1) % allReviews.length);
-    }, 5000);
+    }, 3800);
     return () => clearInterval(interval);
   }, [allReviews]);
 
@@ -5238,6 +5241,7 @@ export default function App() {
           iosUrl: iosFormState.url,
           iosBase64: iosFormState.base64,
           iosFileName: iosFormState.fileName,
+          isEnabled: appFilesSettings.isEnabled !== false,
           lastUpdated: new Date().toISOString()
         }, { merge: true });
 
@@ -5272,6 +5276,28 @@ export default function App() {
           </div>
 
           <form onSubmit={handleSaveAppFiles} className="space-y-8">
+            {/* App Download Activation Toggle Switch */}
+            <div className="flex items-center justify-between p-5 bg-indigo-50 dark:bg-slate-900/40 border border-indigo-100 dark:border-white/5 rounded-3xl">
+              <div>
+                <h4 className="text-sm font-black text-indigo-900 dark:text-white flex items-center gap-2">
+                  <Smartphone className="text-indigo-500" size={18} />
+                  {trans("অ্যাপ ডাউনলোড বাটন সক্রিয়করণ", "App Download Button Global Activation")}
+                </h4>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 font-semibold leading-relaxed">
+                  {trans("এই অন/অফ বাটনটির মাধ্যমে হোমপেজ ও সাইড ড্রয়ারের ডাউনলোড বাটনটিকে চালু বা বন্ধ করতে পারবেন।", "Through this switch, you can globally enable or disable the App download button on raw pages.")}
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appFilesSettings.isEnabled !== false}
+                  onChange={(e) => setAppFilesSettings(prev => ({ ...prev, isEnabled: e.target.checked }))}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-550 peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+
             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs font-semibold leading-relaxed">
               💡 <span className="font-extrabold text-red-600 dark:text-red-400">গুরুত্বপূর্ণ নির্দেশনা:</span> আপনি সরাসরি মেমোরি থেকে ১ মেগাবাইটের কম সাইজের ছোট ফাইল (যেমন PWA শর্টকাট বা ডেমো এপিকে) আপলোড করতে পারবেন। কিন্তু ফায়ারবেস ডাটাবেজের ডকুমেন্ট সাইজ লিমিট ১ এমবি হওয়ার কারণে ২ এমবি বা তার বেশি ওজনের মূল এপ ফাইলগুলো সরাসরি আপলোড করার পরিবর্তে গুগল ড্রাইভ, ড্রপবক্স বা অন্য কোনো হোস্টিং সার্ভারে আপলোড করে সেটির <strong className="underline">ডাউনলোড লিংক ডাউনলোড লিঙ্ক বক্সে বসিয়ে দিন</strong>। এটি শতভাগ সফল ও নিরাপদ।
             </div>
@@ -5908,14 +5934,14 @@ export default function App() {
                 >
                   <TimeMateBDLogo size={64} className="shadow-lg rounded-2xl" />
                 </motion.div>
-                <h2 className="text-2xl font-black">
+                <h2 className="text-2xl font-black text-gray-900 dark:text-white">
                   {authModal.mode === "FORGOT"
                     ? "পাসওয়ার্ড রিসেট"
                     : authModal.mode === "REGISTER"
                     ? "নতুন অ্যাকাউন্ট"
                     : "স্বাগতম"}
                 </h2>
-                <p className="text-gray-500 text-sm mt-1">
+                <p className="text-gray-500 text-sm mt-1 font-semibold">
                   {authModal.mode === "FORGOT"
                     ? "আপনার ইমেল দিয়ে সাবমিট করুন, রিসেট লিংক চলে যাবে"
                     : "টাইমমেট বিডিতে আপনার অ্যাকাউন্টে প্রবেশ করুন"}
@@ -6117,16 +6143,16 @@ export default function App() {
       <AnimatePresence>
         {showSocialProof && !isSocialProofDismissed && (
           <motion.div
-            initial={{ opacity: 0, y: 70, scale: 0.92 }}
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ 
               opacity: 0, 
-              y: 80, 
-              scale: 0.9, 
-              transition: { duration: 0.45, ease: "easeIn" } 
+              y: 20, 
+              scale: 0.95,
+              transition: { duration: 0.15, ease: "easeOut" } 
             }}
-            transition={{ type: "spring", stiffness: 100, damping: 15 }}
-            className="fixed bottom-[92px] sm:bottom-6 left-4 sm:left-6 z-[1400] max-w-[220px] bg-[#FEFDFC]/95 dark:bg-slate-900/95 backdrop-blur border border-indigo-100/60 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] p-2.5 pr-6 rounded-2xl flex items-center gap-2 relative pointer-events-auto"
+            transition={{ type: "spring", stiffness: 380, damping: 25 }}
+            className="fixed bottom-[92px] sm:bottom-6 left-4 sm:left-6 z-[1400] max-w-[220px] bg-[#FEFDFC]/95 dark:bg-slate-900/95 backdrop-blur border border-indigo-150 dark:border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.5)] p-2.5 pr-6 rounded-2xl flex items-center gap-2 pointer-events-auto"
           >
             <button
               onClick={() => {
@@ -6136,7 +6162,7 @@ export default function App() {
                   sessionStorage.setItem("tm_dismiss_social_proof", "true");
                 } catch {}
               }}
-              className="absolute top-1 right-1 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
+              className="absolute top-1.5 right-1.5 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
               title="Close"
             >
               <X size={10} />
@@ -6150,7 +6176,7 @@ export default function App() {
                 👥
               </div>
             </div>
-            <div className="text-left leading-tight">
+            <div className="text-left leading-tight font-sans">
               <p className="text-[8px] sm:text-[9.5px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
                 {trans(
                   [
@@ -6547,22 +6573,24 @@ export default function App() {
                   </>
                 )}
 
-                <div className="mt-8 pt-4 border-t border-white/10 space-y-2">
-                  <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-4 font-sans">
-                    {trans("অ্যান্ড্রয়েড অ্যাপ", "Android Application")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleApkDownload();
-                      setIsDrawerOpen(false);
-                    }}
-                    className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#10b981] hover:text-emerald-300 bg-white/5 hover:bg-white/10 transition-all focus:outline-none cursor-pointer"
-                  >
-                    <Smartphone size={20} className="text-[#10b981] animate-pulse" />
-                    {trans("অ্যাপ ডাউনলোড", "Download APK")}
-                  </button>
-                </div>
+                {appFilesSettings.isEnabled !== false && (
+                  <div className="mt-8 pt-4 border-t border-white/10 space-y-2">
+                    <p className="text-[9px] font-black uppercase text-white/40 tracking-widest px-4 font-sans">
+                      {trans("মোবাইল অ্যাপ", "Mobile Application")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleApkDownload();
+                        setIsDrawerOpen(false);
+                      }}
+                      className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#10b981] hover:text-emerald-300 bg-white/5 hover:bg-white/10 transition-all focus:outline-none cursor-pointer"
+                    >
+                      <Smartphone size={20} className="text-[#10b981] animate-pulse" />
+                      {trans("অ্যাপ ডাউনলোড", "Download App")}
+                    </button>
+                  </div>
+                )}
               </nav>
             </motion.div>
           </>
@@ -6571,11 +6599,12 @@ export default function App() {
 
       {/* APK App Download Alert Banner */}
       <AnimatePresence>
-        {showApkBanner && (
+        {showApkBanner && appFilesSettings.isEnabled !== false && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             className="bg-gradient-to-r from-[#0d9488] via-[#4f46e5] to-[#4338ca] text-white relative z-[51] font-sans border-b border-white/10 overflow-hidden shadow-md"
           >
             <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-center sm:text-left">
@@ -7923,10 +7952,10 @@ export default function App() {
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={currentReviewIndex}
-                      initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -10, scale: 0.98 }}
-                      transition={{ duration: 0.4 }}
+                      initial={{ opacity: 0, x: 20, scale: 0.99 }}
+                      animate={{ opacity: 1, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: -20, scale: 0.99 }}
+                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
                       className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-gray-100 dark:border-white/5"
                     >
                       <div className="flex items-center gap-4 mb-6">
@@ -16229,31 +16258,94 @@ export default function App() {
                 initial={{ scale: 0.95, opacity: 0, y: 15 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 15 }}
-                className="bg-white dark:bg-[#0b0f19] text-gray-950 dark:text-gray-100 w-full max-w-2xl relative z-10 shadow-3xl border border-gray-100 dark:border-white/5 rounded-[2.5rem] text-left overflow-hidden h-[85vh] flex flex-col font-sans"
+                className="bg-white dark:bg-[#0b0f19] text-gray-950 dark:text-gray-100 w-full max-w-md relative z-[101] shadow-3xl border border-gray-150 dark:border-white/5 rounded-3xl text-center overflow-hidden flex flex-col font-sans p-6"
               >
-                {/* Modal Header */}
-                <div className="p-6 pb-4 border-b border-gray-100 dark:border-white/5 flex items-center justify-between bg-gray-50/50 dark:bg-black/20">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-teal-500/10 text-teal-500 dark:text-teal-400 flex items-center justify-center text-lg font-black shadow-inner">
-                      <Smartphone size={20} className="animate-bounce" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-black tracking-tight text-gray-900 dark:text-white leading-tight">
-                        {trans("মোবাইল অ্যাপ ইনস্টলেশন গাইড", "Mobile App Installation Guide")}
-                      </h3>
-                      <p className="text-[10px] text-gray-400 mt-0.5 font-bold uppercase tracking-widest">
-                        {trans("TimeMate BD - 100% Success Mobile App Setup", "TimeMate BD - 100% Success Mobile App Setup")}
-                      </p>
-                    </div>
-                  </div>
+                {/* Direct Platforms Selector Component */}
+                <div className="flex flex-col items-center mt-3 mb-6 relative">
                   <button
                     onClick={() => setIsInstallModalOpen(false)}
-                    className="p-2 hover:bg-gray-200 dark:hover:bg-white/5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white transition-all"
+                    className="absolute top-0 right-0 p-2 hover:bg-gray-100/50 dark:hover:bg-white/5 rounded-xl text-gray-400 hover:text-gray-750 dark:hover:text-white transition-all cursor-pointer z-10"
                   >
                     <X size={18} />
                   </button>
+
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-550 flex items-center justify-center text-xl font-black mb-3">
+                    <Smartphone size={24} className="animate-pulse" />
+                  </div>
+                  <h3 className="text-lg font-black tracking-tight text-gray-900 dark:text-white leading-tight">
+                    {trans("মোবাইল অ্যাপ ডাউনলোড", "Download Mobile App")}
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1 font-bold">
+                    {trans("আপনার প্ল্যাটফর্ম নির্বাচন করুন এবং সরাসরি ডাউনলোড করুন", "Select your platform to download directly")}
+                  </p>
                 </div>
 
+                <div className="space-y-4">
+                  {/* Android Platform Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setIsInstallModalOpen(false);
+                      handleDirectApkDownload();
+                    }}
+                    className="w-full p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-between cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-slate-950/10 flex items-center justify-center text-lg">
+                        🤖
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-[13px]">{trans("অ্যান্ড্রয়েড অ্যাপ (Android APK)", "Android Mobile App")}</div>
+                        <div className="text-[10px] text-slate-900/70 font-semibold lowercase tracking-tight mt-0.5 truncate max-w-[170px]">
+                          {appFilesSettings.apkFileName || "timemate-bd.apk"}
+                        </div>
+                      </div>
+                    </div>
+                    <Download size={18} />
+                  </motion.button>
+
+                  {/* iOS Platform Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setIsInstallModalOpen(false);
+                      addToast(trans("iOS ফাইল ডাউনলোড শুরু হচ্ছে...", "Starting iOS download..."), "success");
+                      safeDownloadFile(
+                        appFilesSettings.iosBase64,
+                        appFilesSettings.iosUrl || "https://apps.apple.com/",
+                        appFilesSettings.iosFileName || "app.ipa"
+                      );
+                    }}
+                    className="w-full p-4 bg-gradient-to-r from-indigo-500 to-indigo-700 text-white font-black rounded-2xl text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-between cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-lg">
+                        🍎
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-[13px]">{trans("আইওএস অ্যাপ (iOS App)", "iOS Apple App")}</div>
+                        <div className="text-[10px] text-indigo-200/80 font-semibold lowercase tracking-tight mt-0.5 truncate max-w-[170px]">
+                          {appFilesSettings.iosFileName || "app.ipa"}
+                        </div>
+                      </div>
+                    </div>
+                    <Download size={18} />
+                  </motion.button>
+                </div>
+
+                <div className="mt-5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 text-amber-800 dark:text-amber-300 text-[10px] font-bold leading-normal mb-4">
+                  {trans(
+                    "অ্যাপ ফাইলটি ডাউনলোড শেষ হওয়ার পর আপনার ফোনের ফাইল ম্যানেজার থেকে সফলভাবে ইনস্টল করে নিতে পারবেন।",
+                    "Once downloaded to your device storage, you can easily open and install it standardly."
+                  )}
+                </div>
+
+
+
+                {false && (
+                  <>
                 {/* OS Switcher Tabs */}
                 <div className="px-6 py-2.5 border-b border-gray-100 dark:border-white/5 bg-gray-50/50 dark:bg-black/20 flex gap-2">
                   <button
@@ -16631,16 +16723,8 @@ export default function App() {
                     </>
                   )}
                 </div>
-
-                {/* Modal Footer */}
-                <div className="p-5 border-t border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-[#080d17] flex items-center justify-end font-sans">
-                  <button
-                    onClick={() => setIsInstallModalOpen(false)}
-                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-600/15"
-                  >
-                    {trans("আচ্ছা, চমৎকার! (Awesome, got it!)", "Close guide")}
-                  </button>
-                </div>
+                  </>
+                )}
               </motion.div>
             </div>
           )}
@@ -18910,6 +18994,7 @@ export default function App() {
               initial={{ opacity: 0, y: 15, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 15, scale: 0.95 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               className="w-[280px] bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/10 rounded-2xl shadow-2xl p-4 flex flex-col gap-2.5"
             >
               <div className="border-b border-gray-100 dark:border-white/5 pb-2 text-center">
@@ -18962,6 +19047,7 @@ export default function App() {
               initial={{ opacity: 0, y: 30, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 30, scale: 0.95 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="w-[290px] sm:w-[335px] h-[430px] max-h-[70vh] bg-white dark:bg-[#111827] border border-gray-150 dark:border-white/10 rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col relative"
             >
               {/* Header */}
@@ -19126,23 +19212,6 @@ export default function App() {
                   </button>
                 </form>
               )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Support Invitation Speech Bubble */}
-        <AnimatePresence>
-          {!(isSupportWidgetOpen || isSupportMenuOpen) && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 15 }}
-              transition={{ delay: 2.5, duration: 0.6 }}
-              className="absolute bottom-20 right-2 max-w-[240px] bg-slate-900/95 text-white rounded-2xl p-3 border border-indigo-500/30 shadow-[0_8px_25px_rgba(79,70,229,0.35)] z-[2000] backdrop-blur font-sans flex items-start gap-2 pointer-events-none"
-            >
-              <div className="text-[10px] font-black tracking-wide leading-relaxed">
-                👋 {trans("আমাদের সাথে সরাসরি চ্যাট করুন! যেকোনো সময় সাহায্য করতে প্রস্তুত আছি।", "Chat with us live! We are always ready to assist you.")}
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
