@@ -85,6 +85,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { APIProvider, Map, AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
 import QRCode from "qrcode";
 import { BufferedInput, BufferedTextArea } from "./components/BufferedInput";
 import {
@@ -121,7 +122,7 @@ import {
 
 import { auth, db } from "./lib/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
 import firebaseConfig from "./firebaseConfig";
 import OrderTracker from "./components/OrderTracker";
 import { SecurityHub } from "./components/SecurityHub";
@@ -2262,7 +2263,7 @@ export default function App() {
       if (current < 25) {
         setLoadingStatusText("📡 ডাবল এনক্রিপটেড সংযোগ স্থাপন...");
       } else if (current < 55) {
-        setLoadingStatusText("🧠 সাইকোলজিক্যাল প্যাটার্ন ও সময় সুসংগতি...");
+        setLoadingStatusText("🛡️ নিরাপদ লোকাল সিকিউর ডেটাবেজ সংযোগ...");
       } else if (current < 85) {
         setLoadingStatusText("🔐 ওটিপি ও ডিভাইস সিকিউরিটি চেক...");
       } else if (current < 100) {
@@ -2273,20 +2274,25 @@ export default function App() {
       }
     }, 80);
 
-    const timer = setTimeout(() => {
-      setIsOpening(false);
-      clearInterval(interval);
-      // After animation, if not logged in, show auth modal
-      if (!auth.currentUser) {
-        setAuthModal({ isOpen: true, mode: "LOGIN" });
-      }
-    }, 2600);
-
     return () => {
-      clearTimeout(timer);
       clearInterval(interval);
     };
   }, []);
+
+  // Sync the opening screen dismiss and auth check
+  useEffect(() => {
+    if (loadingPercent === 100 && !loading) {
+      const waitTimer = setTimeout(() => {
+        setIsOpening(false);
+        if (!user) {
+          setAuthModal({ isOpen: true, mode: "LOGIN" });
+        } else {
+          setAuthModal({ isOpen: false, mode: "LOGIN" });
+        }
+      }, 350);
+      return () => clearTimeout(waitTimer);
+    }
+  }, [loadingPercent, loading, user]);
 
   // Form states
   const [serviceCouponCodeInput, setServiceCouponCodeInput] = useState("");
@@ -2301,6 +2307,97 @@ export default function App() {
       setAvailableCoupons(list);
     });
     return unsub;
+  }, [user]);
+
+  // Continuous Location Tracking & Reverse Geocoding
+  useEffect(() => {
+    if (!user) return;
+
+    let watchId: number | null = null;
+    let lastUpdateTimestamp = 0;
+    let lastLat = 0;
+    let lastLng = 0;
+
+    const successCallback = async (position: GeolocationPosition) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const now = Date.now();
+
+      // Check threshold - update only if moved significantly (> 10m / 0.05 miles / 0.0001 deg) OR 60s has passed
+      const distanceMoved = Math.abs(lat - lastLat) + Math.abs(lng - lastLng);
+      const timeElapsed = now - lastUpdateTimestamp;
+
+      if (lastLat !== 0 && lastLng !== 0 && distanceMoved < 0.0001 && timeElapsed < 60000) {
+        return; // skip excessive updates
+      }
+
+      lastLat = lat;
+      lastLng = lng;
+      lastUpdateTimestamp = now;
+
+      let addressName = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=bn,en`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.display_name) {
+            addressName = data.display_name;
+          }
+        }
+      } catch (geocodeErr) {
+        console.error("Reverse geocoding error:", geocodeErr);
+      }
+
+      try {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          location: {
+            lat,
+            lng,
+            address: addressName,
+            updatedAt: new Date().toISOString()
+          }
+        });
+      } catch (dbErr) {
+        try {
+          const userRef = doc(db, "users", user.uid);
+          await setDoc(userRef, {
+            location: {
+              lat,
+              lng,
+              address: addressName,
+              updatedAt: new Date().toISOString()
+            }
+          }, { merge: true });
+        } catch (setErr) {
+          console.error("Failed to write coordinates to DB:", setErr);
+        }
+      }
+    };
+
+    const errorCallback = (error: GeolocationPositionError) => {
+      console.warn("Continuous Geolocation tracking warning:", error.message);
+    };
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(successCallback, errorCallback, {
+        enableHighAccuracy: true,
+        timeout: 10000
+      });
+      watchId = navigator.geolocation.watchPosition(successCallback, errorCallback, {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 60050
+      });
+    }
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
   }, [user]);
 
   const [orderForm, setOrderForm] = useState(() => {
@@ -2458,6 +2555,7 @@ export default function App() {
   const [empFilter, setEmpFilter] = useState<"all" | "verified" | "pending">("all");
   const [userSearchText, setUserSearchText] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("all");
+  const [selectedUserLocation, setSelectedUserLocation] = useState<any | null>(null);
   const [employeeTab, setEmployeeTab] = useState("jobs");
   // Customer Support Live Chat Real-Time States
   const [supportRooms, setSupportRooms] = useState<any[]>([]);
@@ -5904,6 +6002,126 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* Selected User Location Digital Map Modal */}
+      <AnimatePresence>
+        {selectedUserLocation && (
+          <div className="fixed inset-0 z-[50000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              onClick={() => setSelectedUserLocation(null)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 30 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className="bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden w-full max-w-2xl relative z-10 shadow-2xl border border-gray-100 dark:border-white/10 flex flex-col h-[580px]"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-gray-100 dark:border-white/5 flex items-center justify-between bg-gray-50/30 dark:bg-slate-950/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-indigo-105 dark:bg-indigo-900/45 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-lg shrink-0">
+                    📍
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-gray-905 dark:text-white font-sans">
+                      {selectedUserLocation.name || "ব্যবহারকারী"} এর লাইভ লোকেশন ম্যাপ
+                    </h3>
+                    <p className="text-[10px] text-gray-400 font-mono">
+                      UID: {selectedUserLocation.uid}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedUserLocation(null)}
+                  className="w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-white/5 flex items-center justify-center text-gray-450 hover:text-gray-600 dark:hover:text-white transition-all cursor-pointer border-0 outline-none"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Map Canvas */}
+              <div className="flex-1 relative bg-gray-50 dark:bg-slate-950">
+                {(() => {
+                  const API_KEY =
+                    process.env.GOOGLE_MAPS_PLATFORM_KEY ||
+                    (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+                    (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+                    "";
+                  const hasValidKey = Boolean(API_KEY) && API_KEY !== "YOUR_API_KEY";
+
+                  if (!hasValidKey) {
+                    return (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 font-sans">
+                        <div className="p-4 rounded-full bg-amber-50 dark:bg-amber-955/20 text-amber-500 text-3xl mb-4">
+                          ⚠️
+                        </div>
+                        <h4 className="text-xs font-black text-gray-900 dark:text-white mb-2">
+                          Google Maps API Key Required
+                        </h4>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-400 max-w-sm mb-4 leading-relaxed">
+                          ম্যাপটি দেখার জন্য <strong>GOOGLE_MAPS_PLATFORM_KEY</strong> ফায়ারবেস/এনভায়রনমেন্ট সিক্রেটটি যুক্ত করুন।
+                        </p>
+                        <div className="text-[10px] text-left bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/5 p-4 rounded-xl max-w-md text-gray-500 dark:text-gray-400 space-y-1">
+                          <p className="font-extrabold text-indigo-550 mb-1">🛠️ কীভাবে সেটআপ করবেন:</p>
+                          <p>১. Settings (⚙️ কোণার গিয়ার আইকন) এ ক্লিক করুন।</p>
+                          <p>২. Secrets ট্যাবে যান।</p>
+                          <p>৩. নাম: <code>GOOGLE_MAPS_PLATFORM_KEY</code> এবং ভ্যালু: আপনার Google Maps API Key টি পেস্ট করে সেভ করুন।</p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const lat = selectedUserLocation.location?.lat || 23.8103;
+                  const lng = selectedUserLocation.location?.lng || 90.4125;
+
+                  return (
+                    <APIProvider apiKey={API_KEY} version="weekly">
+                      <div style={{ width: "100%", height: "100%" }}>
+                        <Map
+                          defaultCenter={{ lat, lng }}
+                          defaultZoom={15}
+                          center={{ lat, lng }}
+                          mapId="DEMO_MAP_ID"
+                          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+                          style={{ width: "100%", height: "100%" }}
+                        >
+                          <AdvancedMarker position={{ lat, lng }}>
+                            <Pin background="#4f46e5" glyphColor="#fff" borderColor="#3730a3" />
+                          </AdvancedMarker>
+                        </Map>
+                      </div>
+                    </APIProvider>
+                  );
+                })()}
+              </div>
+
+              {/* Footer Address Info */}
+              <div className="p-6 border-t border-gray-100 dark:border-white/5 bg-gray-50/20 dark:bg-slate-950/35 space-y-2 font-sans">
+                <div className="text-xs font-extrabold text-[#4f46e5] dark:text-indigo-400 flex items-center gap-1.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
+                  </span>
+                  লাইভ রিপোর্টেড অবস্থান (Convert Coordinates to Place Name):
+                </div>
+                <div className="bg-slate-100/40 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5">
+                  <p className="text-xs font-bold text-gray-800 dark:text-gray-200 leading-relaxed">
+                    📍 {selectedUserLocation.location?.address || "অবস্থান নাম অনুবাদ করা হচ্ছে..."}
+                  </p>
+                  <p className="text-[10px] text-gray-400 font-mono mt-2">
+                    অক্ষাংশ (Lat): {selectedUserLocation.location?.lat || "N/A"} | দ্রাঘিমাংশ (Lng): {selectedUserLocation.location?.lng || "N/A"}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Auth Modal */}
       <AnimatePresence>
         {authModal.isOpen && (
@@ -5952,6 +6170,8 @@ export default function App() {
                   <>
                     <BufferedInput
                       id="auth-name"
+                      name="name"
+                      autoComplete="name"
                       type="text"
                       value={authNameInput}
                       onChange={(e) => setAuthNameInput(e.target.value)}
@@ -5961,6 +6181,8 @@ export default function App() {
                     />
                     <BufferedInput
                       id="auth-phone"
+                      name="phone"
+                      autoComplete="tel"
                       type="tel"
                       value={authPhoneInput}
                       onChange={(e) => setAuthPhoneInput(e.target.value)}
@@ -5972,6 +6194,8 @@ export default function App() {
                 )}
                 <BufferedInput
                   id="auth-email"
+                  name="email"
+                  autoComplete="username email"
                   type="email"
                   value={authEmailInput}
                   onChange={(e) => setAuthEmailInput(e.target.value)}
@@ -5984,6 +6208,8 @@ export default function App() {
                   <div className="relative">
                     <BufferedInput
                       id="auth-pass"
+                      name="password"
+                      autoComplete={authModal.mode === "REGISTER" ? "new-password" : "current-password"}
                       type={showPassword ? "text" : "password"}
                       value={authPasswordInput}
                       onChange={(e) => setAuthPasswordInput(e.target.value)}
@@ -14657,6 +14883,13 @@ export default function App() {
                               <p className="text-[10px] font-mono text-indigo-400 font-black">
                                 NID: {emp.nidNumber}
                               </p>
+                              {emp.generatedPassword && (
+                                <div className="mt-1.5 pt-1.5 border-t border-dashed border-gray-100 dark:border-white/5">
+                                  <span className="inline-block text-[9px] bg-indigo-550/10 text-indigo-600 dark:text-indigo-400 font-extrabold font-mono px-2 py-0.5 rounded select-all">
+                                    🔑 PW: {emp.generatedPassword}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             <td className="py-4 px-3 text-center">
                               {emp.nidPhoto ? (
@@ -14947,8 +15180,47 @@ export default function App() {
                                 <p className="font-extrabold text-xs text-gray-800 dark:text-gray-200">{u.phone || "ফোন নেই"}</p>
                                 <p className="text-[10px] text-gray-400 font-mono">{u.email || "ইমেইল নেই"}</p>
                               </td>
-                              <td className="py-4 px-3 font-sans text-[11px] max-w-[200px] truncate" title={u.address}>
-                                {u.address || <span className="text-gray-400 italic">ঠিকানা যুক্ত করা হয়নি</span>}
+                              <td className="py-4 px-3 font-sans max-w-[280px]">
+                                <div className="space-y-1">
+                                  {u.address ? (
+                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate" title={u.address}>
+                                      🏠 প্রোফাইল: <span className="font-bold text-gray-800 dark:text-gray-200">{u.address}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="text-[10px] text-gray-400 italic">
+                                      🏠 প্রোফাইল ঠিকানা যুক্ত নেই
+                                    </p>
+                                  )}
+                                  {u.location ? (
+                                    <div className="space-y-1.5 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 mt-1.5">
+                                      <div className="flex items-center gap-1 text-[9px] font-black text-sky-500 uppercase tracking-widest leading-none">
+                                        <span className="relative flex h-1.5 w-1.5">
+                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-500"></span>
+                                        </span>
+                                        লাইভ অবস্থান ট্র্যাকিং (LIVE)
+                                      </div>
+                                      <p className="text-[11px] leading-relaxed font-bold bg-sky-50/70 dark:bg-sky-950/20 border border-sky-100/30 dark:border-sky-900/20 text-sky-900 dark:text-sky-200 px-2.5 py-1.5 rounded-xl">
+                                        📍 {u.location.address || "নাম অনুবাদ করা হচ্ছে..."}
+                                      </p>
+                                      <div className="flex items-center justify-between text-[9px] text-gray-405 dark:text-gray-400 font-mono">
+                                        <span>Lat: {u.location.lat.toFixed(5)} | Lng: {u.location.lng.toFixed(5)}</span>
+                                        <span>{u.location.updatedAt ? new Date(u.location.updatedAt).toLocaleTimeString() : ""}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => setSelectedUserLocation(u)}
+                                        type="button"
+                                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-sky-500 to-indigo-500 text-white font-extrabold text-[9px] rounded-lg shadow-sm hover:shadow-sky-500/10 active:scale-95 transition-all w-fit cursor-pointer outline-none"
+                                      >
+                                        🗺️ ডিজিটাল ম্যাপ ও প্রিন্ট
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] text-gray-405 dark:text-gray-500 italic mt-1 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 flex items-center gap-1">
+                                      <span>🛰️ লাইভ অবস্থান রেকর্ড করা হয়নি</span>
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-4 px-3 text-center font-sans">
                                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-block border ${
@@ -15478,10 +15750,12 @@ export default function App() {
 
                             const secondaryApp = initializeApp(firebaseConfig, "SecondaryAppGenerator-" + Date.now());
                             const secondaryAuth = getAuth(secondaryApp);
+                            
+                            // Prevent cookie/local persistence mismatch by setting to in-memory persistence
+                            await setPersistence(secondaryAuth, inMemoryPersistence);
+                            
                             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
                             const newUid = userCredential.user.uid;
-
-                            await deleteApp(secondaryApp);
 
                             const finalRole = roleType === "staff" ? "staff" : "employee";
                             const finalSector = roleType === "rider" ? "Rider" : roleType === "worker" ? "Worker" : "";
@@ -15494,7 +15768,8 @@ export default function App() {
                               phone,
                               role: finalRole,
                               timePoints: 100,
-                              createdAt: new Date().toISOString()
+                              createdAt: new Date().toISOString(),
+                              generatedPassword: password
                             });
 
                             if (roleType === "rider" || roleType === "worker") {
@@ -15510,8 +15785,16 @@ export default function App() {
                                 nidPhoto: "https://images.unsplash.com/photo-1557200134-90327ee9fafa?w=150",
                                 photo: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
                                 status: "অনুমোদিত",
-                                timestamp: new Date().toISOString()
+                                timestamp: new Date().toISOString(),
+                                generatedPassword: password
                               });
+                            }
+
+                            // Finally, safe cleanup of the secondary client memory
+                            try {
+                              await deleteApp(secondaryApp);
+                            } catch (cleanUpErr) {
+                              console.error("Cleanup secondaryApp failed non-blockingly:", cleanUpErr);
                             }
 
                             addToast("অ্যাকাউন্ট সফলভাবে জেনারেট সম্পন্ন হয়েছে! 🔑", "success");
@@ -15800,9 +16083,11 @@ export default function App() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="border-b border-gray-100 dark:border-white/5 text-gray-400 text-[9px] uppercase font-black tracking-widest">
+                            <tr className="border-b border-gray-100 dark:border-white/5 text-gray-400 text-[9px] uppercase font-black tracking-widest font-sans">
                               <th className="py-3 px-3 font-sans">নাম ও ভূমিকা</th>
-                              <th className="py-3 px-3 font-sans">যোগাযোগের ইমেইল ও ফোন</th>
+                              <th className="py-3 px-3 font-sans">লগইন আইডি / ইমেইল</th>
+                              <th className="py-3 px-3 font-sans">লগইন পাসওয়ার্ড 🔑</th>
+                              <th className="py-3 px-3 font-sans">মোবাইল নম্বর</th>
                               <th className="py-3 px-3 font-sans">সার্ভিস সেক্টর</th>
                               <th className="py-3 px-3 text-right font-sans">পদক্ষেপ</th>
                             </tr>
@@ -15832,9 +16117,20 @@ export default function App() {
                                         </span>
                                       </div>
                                     </td>
-                                    <td className="py-4 px-3 text-xs font-semibold font-sans">
-                                      <p className="text-gray-900 dark:text-gray-200 font-mono">{u.email}</p>
-                                      <p className="text-gray-400 font-mono text-[10px]">{u.phone || "N/A"}</p>
+                                    <td className="py-4 px-3 text-xs font-semibold font-mono text-gray-900 dark:text-gray-200">
+                                      {u.email}
+                                    </td>
+                                    <td className="py-4 px-3">
+                                      {u.generatedPassword ? (
+                                        <span className="inline-block text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-extrabold font-mono px-2.5 py-1 rounded-lg border border-indigo-100/30 dark:border-indigo-900/30 select-all">
+                                          {u.generatedPassword}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-gray-400 italic">সংরক্ষিত নেই</span>
+                                      )}
+                                    </td>
+                                    <td className="py-4 px-3 text-xs font-semibold font-mono text-gray-400 dark:text-gray-400">
+                                      {u.phone || "N/A"}
                                     </td>
                                     <td className="py-4 px-3 text-xs font-bold font-sans">
                                       {isRider ? "Delivery / Courier" : isWorker ? "Domestic Service" : "Office Desk Management"}
