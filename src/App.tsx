@@ -128,6 +128,14 @@ import { SecurityHub } from "./components/SecurityHub";
 import { CoinEconomy } from "./components/CoinEconomy";
 import { OperationsControl } from "./components/OperationsControl";
 import { AdminAnalyticsPanel, AdminRemindersPanel } from "./components/AdminAnalyticsAndReminders";
+import { 
+  playTickSound, 
+  playSuccessChime, 
+  playErrorSound, 
+  playSwitchSound, 
+  isSystemSoundEnabled, 
+  toggleSystemSound 
+} from "./utils/sound";
 
 // Helper to construct public URL instead of the private dev iframe URL
 const getPublicAppUrl = () => {
@@ -426,10 +434,74 @@ export default function App() {
           emailVerified: true
         } as any;
       }
+      if (typeof localStorage !== "undefined") {
+        const cachedUser = localStorage.getItem("tm_cache_user");
+        if (cachedUser) {
+          return JSON.parse(cachedUser);
+        }
+      }
     } catch {}
     return null;
   });
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(() => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const cachedProfile = localStorage.getItem("tm_cache_profile");
+        if (cachedProfile) {
+          return JSON.parse(cachedProfile);
+        }
+      }
+    } catch {}
+    return null;
+  });
+
+  // Keep caches in sync
+  useEffect(() => {
+    try {
+      if (user) {
+        localStorage.setItem("tm_cache_user", JSON.stringify(user));
+      } else {
+        localStorage.removeItem("tm_cache_user");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    try {
+      if (profile) {
+        localStorage.setItem("tm_cache_profile", JSON.stringify(profile));
+      } else {
+        localStorage.removeItem("tm_cache_profile");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [profile]);
+
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    return typeof navigator !== "undefined" ? navigator.onLine : true;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOnline = () => {
+      setIsOnline(true);
+      addToast("নেটওয়ার্ক সংযোগ পুনরায় চালু হয়েছে! সিস্টেম সিঙ্ক করা হচ্ছে।", "success");
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      addToast("আপনি অফলাইনে আছেন! টাইমমেট বিডি সফলভাবে লোকাল স্টোরেজে ডেটা ধরে রাখছে।", "error");
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem("isDarkMode");
@@ -741,12 +813,21 @@ export default function App() {
   // Advanced Neuro-Marketing States
   const [socialProofIndex, setSocialProofIndex] = useState(0);
   const [showSocialProof, setShowSocialProof] = useState(false);
+  const [isSocialProofDismissed, setIsSocialProofDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem("tm_dismiss_social_proof") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [countdownMinutes, setCountdownMinutes] = useState(4);
   const [countdownSeconds, setCountdownSeconds] = useState(12);
   const [backWarningModal, setBackWarningModal] = useState({ isOpen: false, type: "" });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isSocialProofDismissed) return;
+
     const proofs = [
       "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
       "এনামুল হোসেন এইমাত্র টিকেট বুকিং সার্ভিস সফলভাবে বুক করেছেন (২ মিনিট আগে) 🎫",
@@ -755,23 +836,36 @@ export default function App() {
       "রাইহান উদ্দিন এইমাত্র এক্সপার্ট ইলেকট্রিশিয়ান সার্ভিস বুক করেছেন (৪ মিনিট আগে) ⚡",
     ];
     
-    const interval = setInterval(() => {
-      setShowSocialProof(false);
-      setTimeout(() => {
-        setSocialProofIndex((prev) => (prev + 1) % proofs.length);
-        setShowSocialProof(true);
-      }, 500);
-    }, 15000);
-    
-    const initialTimeout = setTimeout(() => {
+    let timer: NodeJS.Timeout;
+    let index = 0;
+
+    const runCycle = () => {
+      // Show proof
       setShowSocialProof(true);
-    }, 3000);
+      
+      // Keep it visible for 6 seconds, then hide it gracefully
+      timer = setTimeout(() => {
+        setShowSocialProof(false);
+        
+        // Keep it hidden for 24 seconds, to prevent annoying the user, then show the next one
+        timer = setTimeout(() => {
+          index = (index + 1) % proofs.length;
+          setSocialProofIndex(index);
+          runCycle();
+        }, 24000);
+      }, 6000);
+    };
+
+    // First appearance after page load (initial delay of 8 seconds to let user adjust first)
+    const startDelay = setTimeout(() => {
+      runCycle();
+    }, 8000);
     
     return () => {
-      clearInterval(interval);
-      clearTimeout(initialTimeout);
+      clearTimeout(startDelay);
+      clearTimeout(timer);
     };
-  }, []);
+  }, [isSocialProofDismissed]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1286,7 +1380,14 @@ export default function App() {
     errorMsg?: string;
   }>({ isOpen: false, coupon: null });
   const [isOpeningBox, setIsOpeningBox] = useState(false);
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_orders");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [orderSearchTerm, setOrderSearchTerm] = useState("");
   const [orderHistoryTab, setOrderHistoryTab] = useState<
     "all" | "active" | "completed" | "cancelled"
@@ -1315,12 +1416,30 @@ export default function App() {
     bKash: string;
     Nagad: string;
     Rocket: string;
-  }>({
-    bKash: "01700000000",
-    Nagad: "01900000000",
-    Rocket: "01500000000",
+  }>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_payment_settings");
+      return cached ? JSON.parse(cached) : {
+        bKash: "01700000000",
+        Nagad: "01900000000",
+        Rocket: "01500000000",
+      };
+    } catch {
+      return {
+        bKash: "01700000000",
+        Nagad: "01900000000",
+        Rocket: "01500000000",
+      };
+    }
   });
-  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_announcements");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [coinRequests, setCoinRequests] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
   const [lotteryFormModal, setLotteryFormModal] = useState<{
@@ -1350,7 +1469,14 @@ export default function App() {
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<number | null>(null);
   const [spinDeg, setSpinDeg] = useState(0);
-  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_reviews");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [newAdImageBase64, setNewAdImageBase64] = useState<string>("");
   const [isAdImageProcessing, setIsAdImageProcessing] = useState<boolean>(false);
   const autoOpenedOrdersRef = useRef<string[]>([]);
@@ -2199,7 +2325,14 @@ export default function App() {
     localStorage.setItem("tm_order_form", JSON.stringify(orderForm));
   }, [orderForm]);
 
-  const [services, setServices] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_services");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [employees, setEmployees] = useState<any[]>([]);
 
   const defaultServices = [
@@ -2886,6 +3019,8 @@ export default function App() {
     try {
       await signOut(auth);
       localStorage.removeItem("admin_login_override");
+      localStorage.removeItem("tm_cache_user");
+      localStorage.removeItem("tm_cache_profile");
       setIsSecureAdminState(false);
       setUser(null);
       setProfile(null);
@@ -3066,6 +3201,7 @@ export default function App() {
         const r: any[] = [];
         snapshot.forEach((doc) => r.push({ id: doc.id, ...doc.data() }));
         setReviews(r);
+        localStorage.setItem("tm_cache_reviews", JSON.stringify(r));
       },
       (err) => handleFirestoreError(err, "LIST", "reviews"),
     );
@@ -3076,6 +3212,7 @@ export default function App() {
         const a: any[] = [];
         snapshot.forEach((doc) => a.push({ id: doc.id, ...doc.data() }));
         setAnnouncements(a);
+        localStorage.setItem("tm_cache_announcements", JSON.stringify(a));
       },
       (err) => handleFirestoreError(err, "LIST", "announcements"),
     );
@@ -3086,6 +3223,7 @@ export default function App() {
         const s: any[] = [];
         snapshot.forEach((doc) => s.push({ id: doc.id, ...doc.data() }));
         setServices(s);
+        localStorage.setItem("tm_cache_services", JSON.stringify(s));
       },
       (err) => handleFirestoreError(err, "LIST", "services"),
     );
@@ -3107,11 +3245,13 @@ export default function App() {
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          setPaymentSettings({
+          const pSettings = {
             bKash: data.bKash || "01700000000",
             Nagad: data.Nagad || "01900000000",
             Rocket: data.Rocket || "01500000000",
-          });
+          };
+          setPaymentSettings(pSettings);
+          localStorage.setItem("tm_cache_payment_settings", JSON.stringify(pSettings));
         }
       },
       (err) => {
@@ -3305,6 +3445,7 @@ export default function App() {
         const o: any[] = [];
         snapshot.forEach((doc) => o.push({ id: doc.id, ...doc.data() }));
         setOrders(o);
+        localStorage.setItem("tm_cache_orders", JSON.stringify(o));
         setLoading(false);
 
         if (initialOrdersLoaded) {
@@ -5559,8 +5700,8 @@ export default function App() {
         {/* Soft floating light gradient portals */}
         <div className="absolute top-[-10%] left-[-5%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent blur-[120px] dark:from-indigo-950/25 dark:via-purple-900/10 dark:to-transparent animate-pulse duration-7000" />
         <div className="absolute bottom-[-15%] right-[-5%] w-[55vw] h-[55vw] rounded-full bg-gradient-to-tr from-sky-500/10 via-indigo-500/5 to-transparent blur-[140px] dark:from-sky-950/20 dark:via-indigo-950/10 dark:to-transparent animate-pulse duration-8000" />
-        <div className="absolute top-[35%] right-[5%] w-[35vw] h-[35vw] rounded-full bg-indigo-505/5 blur-[100px] dark:bg-purple-950/15 animate-pulse duration-9000" />
-        <div className="absolute bottom-[35%] left-[5%] w-[30vw] h-[30vw] rounded-full bg-purple-505/5 blur-[90px] dark:bg-blue-950/10 animate-pulse duration-10000" />
+        <div className="absolute top-[35%] right-[5%] w-[35vw] h-[35vw] rounded-full bg-indigo-500/5 blur-[100px] dark:bg-purple-950/15 animate-pulse duration-9000" />
+        <div className="absolute bottom-[35%] left-[5%] w-[30vw] h-[30vw] rounded-full bg-purple-500/5 blur-[90px] dark:bg-blue-950/10 animate-pulse duration-10000" />
 
         {/* TIME ORBITS: Fine tech geometric grid overlay lines representing clock precision and schedules */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(99,102,241,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(99,102,241,0.03)_1px,transparent_1px)] bg-[size:40px_40px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.015)_1px,transparent_1px)] dark:bg-[size:48px_48px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
@@ -5974,17 +6115,29 @@ export default function App() {
 
       {/* Social Proof Notification Bottom Corner */}
       <AnimatePresence>
-        {showSocialProof && (
+        {showSocialProof && !isSocialProofDismissed && (
           <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            initial={{ opacity: 0, y: 70, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-6 left-6 z-[1500] max-w-[210px] bg-[#FEFDFC] dark:bg-slate-900 border border-indigo-100 dark:border-white/10 shadow-lg p-2 pr-6 rounded-xl flex items-center gap-1.5 relative"
+            exit={{ 
+              opacity: 0, 
+              y: 80, 
+              scale: 0.9, 
+              transition: { duration: 0.45, ease: "easeIn" } 
+            }}
+            transition={{ type: "spring", stiffness: 100, damping: 15 }}
+            className="fixed bottom-[92px] sm:bottom-6 left-4 sm:left-6 z-[1400] max-w-[220px] bg-[#FEFDFC]/95 dark:bg-slate-900/95 backdrop-blur border border-indigo-100/60 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.4)] p-2.5 pr-6 rounded-2xl flex items-center gap-2 relative pointer-events-auto"
           >
             <button
-              onClick={() => setShowSocialProof(false)}
+              onClick={() => {
+                setShowSocialProof(false);
+                setIsSocialProofDismissed(true);
+                try {
+                  sessionStorage.setItem("tm_dismiss_social_proof", "true");
+                } catch {}
+              }}
               className="absolute top-1 right-1 p-0.5 text-gray-400 hover:text-rose-500 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
-              title="Cancel"
+              title="Close"
             >
               <X size={10} />
             </button>
@@ -5993,12 +6146,12 @@ export default function App() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
               </span>
-              <div className="w-6 h-6 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-xs">
+              <div className="w-7 h-7 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-xs shadow-inner">
                 👥
               </div>
             </div>
             <div className="text-left leading-tight">
-              <p className="text-[8px] sm:text-[8.5px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
+              <p className="text-[8px] sm:text-[9.5px] font-bold text-gray-800 dark:text-gray-200 leading-snug">
                 {trans(
                   [
                     "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦",
@@ -6009,7 +6162,7 @@ export default function App() {
                   ][socialProofIndex]
                 )}
               </p>
-              <p className="text-[7px] text-emerald-500 font-black uppercase tracking-wider mt-0.5">
+              <p className="text-[7px] text-emerald-500 font-extrabold uppercase tracking-widest mt-0.5">
                 Verified Booking
               </p>
             </div>
@@ -6496,38 +6649,60 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <motion.button
                 onClick={() => {
                   const newLang = language === "BN" ? "EN" : "BN";
                   setLanguage(newLang);
+                  playSwitchSound(newLang === "BN");
                   addToast(
                     newLang === "BN"
                       ? "ভাষা পরিবর্তন: বাংলা 🇧🇩"
                       : "Language changed to English 🇬🇧",
                   );
                 }}
-                className="p-2 rounded-xl text-indigo-600 dark:text-indigo-400 font-extrabold text-[11px] uppercase tracking-wide border border-indigo-150 dark:border-white/10 hover:bg-indigo-50 dark:hover:bg-white/5 transition-all active:scale-95 px-3 flex items-center gap-1.5 shadow-sm"
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.92 }}
+                className="p-2 rounded-xl text-indigo-600 dark:text-indigo-400 font-extrabold text-[11px] uppercase tracking-wide border border-indigo-150 dark:border-white/10 hover:bg-indigo-50 dark:hover:bg-white/5 transition-all px-3 flex items-center gap-1.5 shadow-sm"
                 title={
                   language === "BN"
                     ? "Switch to English"
                     : "বাংলা ভাষা নির্বাচন করুন"
                 }
               >
-                <span className="text-sm select-none leading-none">
+                <motion.span 
+                  animate={{ rotate: language === "BN" ? 0 : 360 }}
+                  className="text-sm select-none leading-none inline-block align-middle"
+                >
                   {language === "BN" ? "🇬🇧" : "🇧🇩"}
-                </span>
+                </motion.span>
                 <span>{language === "BN" ? "EN" : "বাং"}</span>
-              </button>
-              <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/10 transition-all active:scale-95"
+              </motion.button>
+              <motion.button
+                onClick={() => {
+                  playSwitchSound(!isDarkMode);
+                  setIsDarkMode(!isDarkMode);
+                }}
+                whileHover={{ scale: 1.1, rotate: isDarkMode ? 40 : -40 }}
+                whileTap={{ scale: 0.9 }}
+                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/10 transition-all flex items-center justify-center text-gray-600 dark:text-amber-400"
               >
-                {isDarkMode ? (
-                  <Sun size={20} className="text-amber-400" />
-                ) : (
-                  <Moon size={20} className="text-gray-600" />
-                )}
-              </button>
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={isDarkMode ? "dark" : "light"}
+                    initial={{ y: -6, opacity: 0, rotate: -45 }}
+                    animate={{ y: 0, opacity: 1, rotate: 0 }}
+                    exit={{ y: 6, opacity: 0, rotate: 45 }}
+                    transition={{ duration: 0.15 }}
+                    className="flex justify-center items-center"
+                  >
+                    {isDarkMode ? (
+                      <Sun size={20} className="text-amber-400" />
+                    ) : (
+                      <Moon size={20} className="text-gray-600" />
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </motion.button>
               <div className="relative">
                 <button
                   onClick={() => setIsNotificationOpen(!isNotificationOpen)}
@@ -6965,32 +7140,40 @@ export default function App() {
           </div>
         </header>
 
+        {/* Offline Mode Sync & local backup notification banner */}
+        <AnimatePresence>
+          {!isOnline && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="bg-gradient-to-r from-amber-600 via-orange-600 to-indigo-700 text-white overflow-hidden shadow-lg border-b border-amber-500/20 sticky top-[61px] z-[49] font-sans"
+            >
+              <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-center gap-2 text-center text-[10px] sm:text-xs font-black tracking-wide leading-relaxed">
+                <span className="flex h-2.5 w-2.5 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
+                <span>
+                  {trans(
+                    "⚠️ ইন্টারনেট কানেকশন নেই! টাইমমেট বিডি অফলাইনে চলছে। আপনার সমস্ত বুকিং ও কার্যক্রম লোকাল মেমোরিতে নিরাপদে জমা রয়েছে এবং অফলাইন ও অনলাইন সচল হলেই স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।",
+                    "⚠️ Offline Mode: Internet disconnected. TimeMate BD is storing all bookings, coupons and requests on your offline storage local cache successfully and will auto-sync on reconnect!"
+                  )}
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Main Content */}
         <main className={`${activeSection === "admin" ? "max-w-none px-4 md:px-8 lg:px-12 w-full" : "max-w-7xl mx-auto px-4"} py-6`}>
           {/* Section Router */}
           {activeSection === "home" && (
             <div className="space-y-12">
               {/* Elegant Dynamic Announcement Slider */}
-              {(() => {
-                const items =
-                  announcements.length > 0
-                    ? announcements
-                    : [
-                        {
-                          id: "1",
-                          text: "📢 স্বাগতম টাইমমেট বিডিতে! আমাদের নতুন সার্ভিস বুকিংয়ে বিশেষ ছাড় পেতে কুপন কোড ব্যবহার করুন।",
-                        },
-                        {
-                          id: "2",
-                          text: "🎉 ধামাকা লটারি আপডেট: লটারি টিকিট সংগ্রহ করে জিতে নিন ৳১,০০,০০০ মেগা প্রাইজমানি!",
-                        },
-                        {
-                          id: "3",
-                          text: "🎂 ক্লায়েন্ট জন্মদিন গিফট: জন্মদিনে ৫০০ টাইম পয়েন্ট উপহার সংগ্রহ করুন সরাসরি প্রোফাইল থেকে!",
-                        },
-                      ];
-                return <AnnouncementSlideshow items={items} />;
-              })()}
+              {announcements.length > 0 && (
+                <AnnouncementSlideshow items={announcements} />
+              )}
 
               {isAdmin ? (
                 /* Administrative Custom Home Workspace */
@@ -16029,7 +16212,7 @@ export default function App() {
             </div>
           )}
         </AnimatePresence>
-|
+
         {/* Android / PWA App Installation Tutorial & PWA Trigger Modal */}
         <AnimatePresence>
           {isInstallModalOpen && (
@@ -16838,8 +17021,18 @@ export default function App() {
                   </button>
                   <button
                     onClick={async () => {
-                      if (confirmModal.onConfirm) {
-                        await confirmModal.onConfirm();
+                      try {
+                        if (confirmModal.onConfirm) {
+                          await confirmModal.onConfirm();
+                        }
+                      } catch (err) {
+                        console.error("Confirmation execution error:", err);
+                      } finally {
+                        setConfirmModal({
+                          isOpen: false,
+                          message: "",
+                          onConfirm: null,
+                        });
                       }
                     }}
                     className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-extrabold rounded-xl text-xs shadow-lg shadow-red-500/20 transition-all active:scale-[0.98] cursor-pointer font-sans"
@@ -18937,9 +19130,27 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Floating Master Support Chat Bubble */}
-        <button
+        {/* Support Invitation Speech Bubble */}
+        <AnimatePresence>
+          {!(isSupportWidgetOpen || isSupportMenuOpen) && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 15 }}
+              transition={{ delay: 2.5, duration: 0.6 }}
+              className="absolute bottom-20 right-2 max-w-[240px] bg-slate-900/95 text-white rounded-2xl p-3 border border-indigo-500/30 shadow-[0_8px_25px_rgba(79,70,229,0.35)] z-[2000] backdrop-blur font-sans flex items-start gap-2 pointer-events-none"
+            >
+              <div className="text-[10px] font-black tracking-wide leading-relaxed">
+                👋 {trans("আমাদের সাথে সরাসরি চ্যাট করুন! যেকোনো সময় সাহায্য করতে প্রস্তুত আছি।", "Chat with us live! We are always ready to assist you.")}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Floating Master Support Chat Bubble - Beautifully Animated & Glowing */}
+        <motion.button
           onClick={() => {
+            playSwitchSound(!(isSupportWidgetOpen || isSupportMenuOpen));
             if (isSupportWidgetOpen) {
               setIsSupportWidgetOpen(false);
               setIsSupportMenuOpen(false);
@@ -18947,15 +19158,47 @@ export default function App() {
               setIsSupportMenuOpen((v) => !v);
             }
           }}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white p-3.5 sm:p-4 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all flex items-center justify-center cursor-pointer relative"
+          animate={{
+            y: [0, -6, 0],
+            scale: [1, 1.05, 1],
+            boxShadow: [
+              "0 15px 30px -5px rgba(79, 70, 229, 0.4), 0 0 0 0px rgba(79, 70, 229, 0.3)",
+              "0 25px 40px -5px rgba(124, 58, 237, 0.6), 0 0 0 12px rgba(124, 58, 237, 0)",
+              "0 15px 30px -5px rgba(79, 70, 229, 0.4), 0 0 0 0px rgba(79, 70, 229, 0.3)"
+            ],
+          }}
+          transition={{
+            duration: 3,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          whileHover={{ scale: 1.12, y: -8 }}
+          whileTap={{ scale: 0.95 }}
+          className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 text-white p-3.5 sm:p-4 rounded-full shadow-[0_0_25px_rgba(79,70,229,0.45)] hover:shadow-[0_0_35px_rgba(124,58,237,0.6)] flex items-center gap-2 cursor-pointer relative z-[2000]"
           title="মেসেঞ্জার ও সাপোর্ট"
         >
-          {isSupportWidgetOpen || isSupportMenuOpen ? <X size={20} /> : <MessageSquare size={20} />}
+          {isSupportWidgetOpen || isSupportMenuOpen ? (
+            <X size={20} className="relative z-10" />
+          ) : (
+            <div className="relative z-10 flex items-center gap-2">
+              <div className="relative">
+                <span className="flex h-2.5 w-2.5 absolute -top-1 -right-1 z-30">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-90"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <MessageSquare size={20} className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]" />
+              </div>
+              <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest pl-0.5 pr-1.5 leading-none select-none">
+                সাপোর্ট চ্যাট (Live Support)
+              </span>
+            </div>
+          )}
+
           {/* Soft badge indicating open support alerts */}
           {supportRooms.some(r => r.customerUid === (user?.uid || guestSession?.uid) && r.unreadCount > 0) && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 pointer-events-none animate-ping" />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 pointer-events-none animate-ping" />
           )}
-        </button>
+        </motion.button>
       </div>
     </div>
   );

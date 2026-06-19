@@ -48,7 +48,7 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
           },
         });
       }
-    }, 120); // 120ms is low enough to be near-instant, but delays enough to avoid re-rendering on every keypress during fast bursts!
+    }, 50); // 50ms is near-instant, guaranteeing no typing latency while blocking multiple heavy renders
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
@@ -116,7 +116,7 @@ export const BufferedTextArea: React.FC<BufferedTextAreaProps> = ({
           },
         });
       }
-    }, 120);
+    }, 50);
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
