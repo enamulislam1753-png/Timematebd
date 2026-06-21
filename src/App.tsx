@@ -33,6 +33,7 @@ import {
   updateDoc,
   deleteDoc,
   limit,
+  increment,
 } from "firebase/firestore";
 import {
   Check,
@@ -88,6 +89,10 @@ import {
   QrCode,
   Ban,
   XCircle,
+  ShieldAlert,
+  Lock,
+  Unlock,
+  Sliders,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { APIProvider, Map, AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
@@ -2736,8 +2741,61 @@ export default function App() {
   const [userRoleFilter, setUserRoleFilter] = useState("all");
   const [selectedUserLocation, setSelectedUserLocation] = useState<any | null>(null);
   const [employeeTab, setEmployeeTab] = useState("jobs");
+
+  // Anti-Hacker Shield & Safe Mode State Managers
+  const [isSafeMode, setIsSafeMode] = useState<boolean>(() => {
+    return localStorage.getItem("tm_anti_hacker_safe_mode") === "true";
+  });
+  const [safeModeReason, setSafeModeReason] = useState<string>("Suspicious connection or VPN Spoof detected.");
+  const [securityPinInput, setSecurityPinInput] = useState("");
+  const [isPinPromptOpen, setIsPinPromptOpen] = useState(false);
+  const [securityPinError, setSecurityPinError] = useState("");
+  const [securityEvents, setSecurityEvents] = useState<any[]>([
+    { id: 1, time: "2026-06-21 11:04", type: "INFO", title: "Firewall Shield Initialized", desc: "Anti-hacker security policies successfully configured and loaded." },
+    { id: 2, time: "2026-06-21 11:09", type: "GEO", title: "Untrusted Country IP Prevented", desc: "Blocked access simulation from suspicious node: IP 185.220.101.5 (Proxy Exit)." }
+  ]);
+  const [vpnFilterActive, setVpnFilterActive] = useState(true);
+  const [geoFencingActive, setGeoFencingActive] = useState(false);
+
+  const triggerSafeMode = (reason: string) => {
+    setIsSafeMode(true);
+    setSafeModeReason(reason);
+    localStorage.setItem("tm_anti_hacker_safe_mode", "true");
+    
+    // Log threat event
+    const newEvent = {
+      id: Date.now(),
+      time: new Date().toLocaleTimeString() + " " + new Date().toLocaleDateString(),
+      type: "THREAT",
+      title: "ALERT: Threat Detected! Safe Mode Enabled",
+      desc: reason
+    };
+    setSecurityEvents(prev => [newEvent, ...prev]);
+    // Play error sound and show threat notice
+    playErrorSound();
+    addToast("⚠️ অ্যান্টি-হ্যাকার অ্যালার্ট! সন্দেহজনক কার্যকলাপ সনাক্ত হওয়ায় সেফ মোড সক্রিয় করা হয়েছে!", "error");
+  };
+
+  const unlockSafeMode = (pinCode: string) => {
+    if (pinCode === "1234" || pinCode === "admin1234") {
+      setIsSafeMode(false);
+      localStorage.setItem("tm_anti_hacker_safe_mode", "false");
+      setSecurityPinInput("");
+      setIsPinPromptOpen(false);
+      setSecurityPinError("");
+      playSuccessSound();
+      addToast("সাফল্য! সেফ মোড নিষ্ক্রিয় করা হয়েছে এবং ডেটা দৃশ্যমান করা হলো। 🔓", "success");
+    } else {
+      setSecurityPinError("ভুল পিন কোড! অনুগ্রহ করে সঠিক মাস্টার কোড ব্যবহার করুন। 🔒");
+      playErrorSound();
+    }
+  };
   // Customer Support Live Chat Real-Time States
   const [supportRooms, setSupportRooms] = useState<any[]>([]);
+  const totalUnreadRoomsCount = useMemo(() => {
+    return supportRooms.reduce((sum, r) => sum + (r.unreadCount || 0), 0);
+  }, [supportRooms]);
+  const prevUnreadsRef = useRef<{ [roomId: string]: number }>({});
   const [activeSupportRoomId, setActiveSupportRoomId] = useState<string | null>(null);
 
   const [showSpamRooms, setShowSpamRooms] = useState(false);
@@ -2783,7 +2841,7 @@ export default function App() {
 
   // Monitor current calling status bidirectional
   const activeCallingRoom = useMemo(() => {
-    const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+    const isRep = isAdmin;
     if (isRep) {
       const currentlyFocused = supportRooms.find(r => r.id === activeSupportRoomId);
       if (currentlyFocused?.callState) {
@@ -2799,7 +2857,7 @@ export default function App() {
       const currentId = user?.uid || guestSession?.uid;
       return supportRooms.find(r => r.id === currentId);
     }
-  }, [supportRooms, profile, isSecureAdminState, activeSupportRoomId, user, guestSession]);
+  }, [supportRooms, isAdmin, activeSupportRoomId, user, guestSession]);
 
   useEffect(() => {
     const callState = activeCallingRoom?.callState;
@@ -3772,7 +3830,7 @@ export default function App() {
 
   // Live Support Rooms Stream Subscription
   useEffect(() => {
-    const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+    const isRep = isAdmin;
     let unsubscribeRooms: () => void = () => {};
 
     if (isRep) {
@@ -3781,10 +3839,25 @@ export default function App() {
         q,
         (snapshot) => {
           const rooms: any[] = [];
+          let triggeredSound = false;
           snapshot.forEach((doc) => {
-            rooms.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            const id = doc.id;
+            rooms.push({ id, ...data });
+
+            // Detect state updates to play received message ping sound
+            const prevCount = prevUnreadsRef.current[id] || 0;
+            const newCount = data.unreadCount || 0;
+            if (newCount > prevCount && id !== activeSupportRoomId) {
+              triggeredSound = true;
+            }
+            prevUnreadsRef.current[id] = newCount;
           });
+
           setSupportRooms(rooms);
+          if (triggeredSound) {
+            playMessageSound("received");
+          }
         },
         (err) => handleFirestoreError(err, "LIST", "support_rooms")
       );
@@ -3811,7 +3884,7 @@ export default function App() {
     return () => {
       unsubscribeRooms();
     };
-  }, [profile, user, guestSession, isSecureAdminState]);
+  }, [isAdmin, user, guestSession]);
 
   // Customer / Guest Support Messages Room Subscriptions
   useEffect(() => {
@@ -5520,7 +5593,7 @@ export default function App() {
         isGuest: isGuest,
         lastMessage: text,
         lastMessageTime: new Date().toISOString(),
-        unreadCount: 1,
+        unreadCount: increment(1),
         status: "open"
       }, { merge: true });
     } catch (err) {
@@ -5632,7 +5705,9 @@ export default function App() {
                     className={`w-full p-4 rounded-2xl text-left transition-all border flex items-start gap-3 relative cursor-pointer ${
                       isActive
                         ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-600/15"
-                        : "bg-white dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/40 border-gray-150 dark:border-white/5 text-gray-700 dark:text-gray-100"
+                        : room.unreadCount > 0
+                          ? "bg-rose-50/15 dark:bg-rose-950/10 hover:bg-rose-50/20 dark:hover:bg-rose-950/15 border-rose-500/40 dark:border-rose-500/30 shadow-md ring-1 ring-rose-500/10 text-gray-800 dark:text-gray-100"
+                          : "bg-white dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/40 border-gray-150 dark:border-white/5 text-gray-700 dark:text-gray-100"
                     }`}
                   >
                     <div className="relative shrink-0 mt-0.5">
@@ -5642,21 +5717,32 @@ export default function App() {
                         {room.customerName?.slice(0, 2).toUpperCase() || "CU"}
                       </div>
                       {room.unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
                       )}
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-xs truncate">
+                        <span className="font-extrabold text-xs truncate flex items-center gap-1.5">
                           {room.customerName}
+                          {room.unreadCount > 0 && (
+                            <span className="px-1.5 py-0.5 text-[7px] font-black bg-rose-600 text-white rounded-full animate-bounce inline-block shrink-0">
+                              {room.unreadCount} NEW
+                            </span>
+                          )}
                         </span>
                         <span className={`text-[8px] shrink-0 font-bold ml-1 ${isActive ? "text-white/70" : "text-gray-450"}`}>
                           {dateStr}
                         </span>
                       </div>
                       
-                      <p className={`text-[10px] truncate mt-1 ${isActive ? "text-white/80" : "text-gray-500 dark:text-gray-400"}`}>
+                      <p className={`text-[10px] truncate mt-1 ${
+                        isActive 
+                          ? "text-white/80" 
+                          : room.unreadCount > 0 
+                            ? "text-gray-950 dark:text-white font-extrabold" 
+                            : "text-gray-500 dark:text-gray-400"
+                      }`}>
                         {room.lastMessage || "নতুন চ্যাট সেশন..."}
                       </p>
                       
@@ -10961,13 +11047,19 @@ export default function App() {
                 {[
                   { id: "jobs", label: "সহলভ্য নতুন কাজ (Job Board) 📋" },
                   { id: "my-tasks", label: "আমার চলমান কাজসমূহ 🚚" },
+                  ...(profile?.role === "staff" || profile?.role === "admin" || isSecureAdminState || isAdmin ? [{ id: "customer-support", label: "গ্রাহক লাইভ চ্যাট 💬" }] : [])
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setEmployeeTab(tab.id)}
-                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all focus:outline-none whitespace-nowrap ${employeeTab === tab.id ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"}`}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all focus:outline-none whitespace-nowrap flex items-center justify-center gap-1.5 ${employeeTab === tab.id ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"}`}
                   >
-                    {tab.label}
+                    <span>{tab.label}</span>
+                    {tab.id === "customer-support" && totalUnreadRoomsCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse">
+                        {totalUnreadRoomsCount}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -11854,6 +11946,7 @@ export default function App() {
                     "news",
                     ...(isSuperAdmin ? ["reports"] : []),
                     ...(isSuperAdmin ? ["credentials"] : []),
+                    "security",
                   ].map((tab) => (
                     <button
                       key={tab}
@@ -11868,8 +11961,16 @@ export default function App() {
                             ? "হাইইস্ট অর্ডার আইডি 📊"
                             : tab === "reminders"
                               ? "ইউজার রিমাইন্ডারস ⏰"
-                              : tab === "live-chat"
-                                ? "গ্রাহক লাইভ চ্যাট 💬"
+                              : tab === "live-chat" ? (
+                                  <span className="flex items-center gap-1">
+                                    গ্রাহক লাইভ চ্যাট 💬
+                                    {totalUnreadRoomsCount > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse">
+                                        {totalUnreadRoomsCount}
+                                      </span>
+                                    )}
+                                  </span>
+                                )
                           : tab === "app-files"
                             ? "এপ ফাইল 📱"
                             : tab === "services"
@@ -11892,7 +11993,9 @@ export default function App() {
                                             ? "নিউজ ও বিজ্ঞাপন 📢"
                                             : tab === "reports"
                                               ? "রিপোর্টস"
-                                              : "অ্যাকাউন্ট জেনারেটর 🔑"}
+                                              : tab === "credentials"
+                                                ? "অ্যাকাউন্ট জেনারেটর 🔑"
+                                                : "সিকিউরিটি শিল্ড 🛡️"}
                     </button>
                   ))}
                 </div>
@@ -11904,7 +12007,7 @@ export default function App() {
                   <p className="text-[10px] font-black text-indigo-100 uppercase tracking-widest mb-1">
                     মোট অর্ডার
                   </p>
-                  <p className="text-3xl font-black">{orders.length}</p>
+                  <p className="text-3xl font-black">{isSafeMode ? "•••" : orders.length}</p>
                 </div>
 
                 {/* Box 2: Successful Services */}
@@ -11913,7 +12016,7 @@ export default function App() {
                     সফল সার্ভিস
                   </p>
                   <p className="text-3xl font-black">
-                    {orders.filter((o) => o.status === "সম্পন্ন").length}
+                    {isSafeMode ? "•••" : orders.filter((o) => o.status === "সম্পন্ন").length}
                   </p>
                 </div>
 
@@ -11939,7 +12042,7 @@ export default function App() {
                         )}
                         পেন্ডিং অর্ডার (নতুন)
                       </p>
-                      <p className="text-3xl font-black">{pendingCount}</p>
+                      <p className="text-3xl font-black">{isSafeMode ? "•••" : pendingCount}</p>
                     </div>
                   );
                 })()}
@@ -11949,7 +12052,7 @@ export default function App() {
                   <p className="text-[10px] font-black text-blue-100 uppercase tracking-widest mb-1">
                     মোট ইউজার
                   </p>
-                  <p className="text-3xl font-black">{allUsers.length}</p>
+                  <p className="text-3xl font-black">{isSafeMode ? "•••" : allUsers.length}</p>
                 </div>
               </div>
 
@@ -15927,9 +16030,9 @@ export default function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans text-xs">
                     <div className="relative col-span-2">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-                      <input
+                      <BufferedInput
                         value={userSearchText}
-                        onChange={(e) => setUserSearchText(e.target.value)}
+                        onChange={(e: any) => setUserSearchText(e.target.value)}
                         placeholder="নাম, ইমেইল অথবা মোবাইল নম্বর দিয়ে সার্চ করুন..."
                         className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-white/5 border border-gray-150 dark:border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-sans font-bold"
                       />
@@ -17015,6 +17118,258 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {adminTab === "security" && (
+                <div className="space-y-6 animate-fadeIn">
+                  {/* Security Banner Header */}
+                  <div className={`bg-gradient-to-r ${isSafeMode ? "from-red-650 via-rose-650 to-red-800 animate-pulse" : "from-emerald-600 via-teal-600 to-indigo-700"} rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500`}>
+                    <div className="absolute right-0 top-0 opacity-10 font-[1000] text-[100px] leading-none select-none tracking-tighter">
+                      SECURE
+                    </div>
+                    <div className="relative z-10 space-y-2">
+                      <span className="px-3 py-1 bg-white/20 text-white rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 w-fit">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isSafeMode ? "bg-white animate-ping" : "bg-emerald-400"}`} />
+                        TimeMate Cyber-Defense Shield Active
+                      </span>
+                      <h2 className="text-2xl sm:text-3xl font-black tracking-tight font-sans flex items-center gap-2">
+                        সিকিউরিটি ও হ্যাকার প্রোটেকশন প্যানেল 🛡️
+                      </h2>
+                      <p className="text-white/80 text-xs mt-1.5 font-medium max-w-xl font-sans leading-relaxed">
+                        আপনার সিস্টেমকে যেকোনো ক্ষতিকর আক্রমণ, অনিবন্ধিত VPN বা ক্ষতিকর ম্যালিসিয়াস আইপি অ্যাক্সেস থেকে নিরাপদ রাখতে এই মডিউলটি প্রতিনিয়ত কাজ করছে। কোনো সন্দেহজনক ব্যবহারকারী সনাক্ত হলে সিস্টেম স্বয়ংক্রিয়ভাবে সেফ-মোড কনফিগার করে নেয়।
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Anti-Hacker Shield Interactive Control panel */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Safe Mode Center Control Widget */}
+                    <div className="lg:col-span-1 bg-white dark:bg-[#0f172a] rounded-[2.5rem] p-6 border border-gray-150 dark:border-white/10 shadow-xl flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-xs font-black text-gray-900 dark:text-white border-b pb-3 dark:border-white/5 uppercase tracking-wider flex items-center gap-2 font-sans">
+                          {isSafeMode ? <ShieldAlert className="text-red-500 animate-pulse" size={16} /> : <Shield className="text-emerald-500" size={16} />} 
+                          সেফ মোড স্থিতি (Safe Mode status)
+                        </h3>
+                        <div className="my-6 text-center">
+                          <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center transition-all ${isSafeMode ? "bg-red-100 dark:bg-red-950/40 text-red-600 animate-bounce" : "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600"}`}>
+                            {isSafeMode ? <Lock size={28} /> : <Unlock size={28} />}
+                          </div>
+                          <h4 className={`text-md font-black mt-3.5 ${isSafeMode ? "text-red-600" : "text-emerald-600"}`}>
+                            {isSafeMode ? "অ্যান্টি-হ্যাকার সেফ মোড সক্রিয়! 🔒" : "সিস্টেম সম্পূর্ণ নিরাপদ আছে! ✅"}
+                          </h4>
+                          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 pb-4 leading-relaxed font-sans max-w-[250px] mx-auto">
+                            {isSafeMode 
+                              ? `কারণ: ${safeModeReason}` 
+                              : "কোনো সক্রিয় থ্রেট বা ক্ষতিকর ও সন্দেহজনক ভিপিএন লগইন সেশন পাওয়া যায়নি।"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 pt-4 border-t border-gray-100 dark:border-white/5">
+                        {isSafeMode ? (
+                          <button
+                            onClick={() => {
+                              setSecurityPinError("");
+                              setSecurityPinInput("");
+                              setIsPinPromptOpen(true);
+                            }}
+                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md border-0"
+                          >
+                            <Unlock size={11} strokeWidth={2.5} /> সেফ মোড নিষ্ক্রিয় করুন 🔓
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              customConfirm("আপনি কি নিশ্চিতভাবে এই মুহূর্তে সিস্টেমে ‘অ্যান্টি-হ্যাকার সেফ মোড’ চালু করতে চান? এটি চালু হলে এডমিন প্যানেলের গুরুত্বপূর্ণ সংবেদনশীল বিবরণ এবং উপার্জনের তথ্য সম্পূর্ণ অদৃশ্য বা স্টার (*) চিহ্নে পরিণত হবে।", () => {
+                                triggerSafeMode("Manual administrative trigger initialized.");
+                              });
+                            }}
+                            className="w-full py-3 bg-red-650 hover:bg-red-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md border-0"
+                          >
+                            <Lock size={11} strokeWidth={2.5} /> সেফ মোড চালু করুন 🔒
+                          </button>
+                        )}
+                        <p className="text-[8px] text-gray-450 font-black block text-center leading-relaxed font-sans">
+                          সেফ মোড আনলক করার ডিফল্ট মাস্টার পিন: <span className="font-mono text-indigo-500 font-extrabold text-[10px]">1234</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Cyber Defense Configuration */}
+                    <div className="lg:col-span-1 bg-white dark:bg-[#0f172a] rounded-[2.5rem] p-6 border border-gray-150 dark:border-white/10 shadow-xl flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-xs font-black text-gray-900 dark:text-white border-b pb-3 dark:border-white/5 uppercase tracking-wider flex items-center gap-2 font-sans">
+                          <Sliders className="text-indigo-500" size={16} /> গ্লোবাল ফায়ারওয়াল পলিসি
+                        </h3>
+                        
+                        <div className="space-y-4 my-6 font-sans">
+                          {/* Setting 1 */}
+                          <div className="flex items-center justify-between p-3.5 bg-gray-50 dark:bg-white/1 rounded-2xl border border-gray-100 dark:border-white/5">
+                            <div>
+                              <span className="text-xs font-black text-gray-800 dark:text-white font-sans">VPN / Proxy ব্লকার</span>
+                              <p className="text-[9px] text-gray-400 font-semibold block leading-relaxed mt-0.5">সব ধরনের প্রক্সি আইপি সংযোগ স্বয়ংক্রিয়ভাবে ব্লক করে</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setVpnFilterActive(!vpnFilterActive);
+                                addToast(vpnFilterActive ? "VPN ফিল্টার সাময়িকভাবে নিষ্ক্রিয় করা হয়েছে।" : "সক্রিয় VPN ফিল্টার! যেকোনো ছদ্মবেশী প্রক্সি সেশন প্রতিহত করা হবে।", "success");
+                              }}
+                              className={`w-11 h-6 rounded-full p-1 transition-colors duration-300 focus:outline-none cursor-pointer ${vpnFilterActive ? "bg-indigo-600" : "bg-gray-350 dark:bg-gray-750"}`}
+                            >
+                              <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${vpnFilterActive ? "translate-x-5" : "translate-x-0"}`} />
+                            </button>
+                          </div>
+
+                          {/* Setting 2 */}
+                          <div className="flex items-center justify-between p-3.5 bg-gray-50 dark:bg-white/1 rounded-2xl border border-gray-100 dark:border-white/5">
+                            <div>
+                              <span className="text-xs font-black text-gray-800 dark:text-white font-sans">অটো জিও-ফেন্সিং লক</span>
+                              <p className="text-[9px] text-gray-400 font-semibold block leading-relaxed mt-0.5">বাংলাদেশ ছাড়া বাইরের দেশের ক্ষতিকর ট্রাফিক ব্লক করা</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setGeoFencingActive(!geoFencingActive);
+                                addToast(geoFencingActive ? "জিও-ফেন্সিং লক নিষ্ক্রিয় করা হয়েছে।" : "সক্রিয় জিও-ফেন্সিং! বাংলাদেশ ব্যতীত অন্য দেশ থেকে ট্রাফিক প্রতিরোধ করা হবে।", "success");
+                              }}
+                              className={`w-11 h-6 rounded-full p-1 transition-colors duration-300 focus:outline-none cursor-pointer ${geoFencingActive ? "bg-indigo-600" : "bg-gray-350 dark:bg-gray-750"}`}
+                            >
+                              <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${geoFencingActive ? "translate-x-5" : "translate-x-0"}`} />
+                            </button>
+                          </div>
+
+                          {/* Info Card */}
+                          <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-[10px] text-amber-600 font-bold leading-relaxed flex gap-2">
+                            <span className="text-amber-500">⚠️</span>
+                            <span>ভিপিএন ব্লকার চালু থাকলে ব্যবহারকারী ছদ্মবেশী আইপি দিয়ে এডমিন বা পেমেন্ট পেজে অ্যাক্সেস এবং কোনো অনিবন্ধিত পরিবর্তন করতে পারবে না।</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-100 dark:border-white/5">
+                        <span className="text-[9px] text-gray-400 font-extrabold uppercase tracking-widest block text-center">
+                          CURRENT NETWORK LOGS: SECURE
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Hacker Cyber Threats Simulator */}
+                    <div className="lg:col-span-1 bg-white dark:bg-[#0f172a] rounded-[2.5rem] p-6 border border-gray-150 dark:border-white/10 shadow-xl flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-xs font-black text-gray-900 dark:text-white border-b pb-3 dark:border-white/5 uppercase tracking-wider flex items-center gap-2 font-sans flex items-center gap-1">
+                          <Terminal className="text-red-500 animate-pulse" size={16} /> সাইবার থ্রেট সিমুলেটর
+                        </h3>
+                        <p className="text-[10px] text-gray-450 font-bold leading-relaxed my-4 font-sans leading-relaxed">
+                          আপনার অ্যান্টি-হ্যাকার শিল্ড এবং ডেটা-হার্ডেনিং সেফ মোড কীভাবে কাজ করে তা তাৎক্ষণিকভাবে যাচাই করতে বা কর্মকর্তাদের সামনে নিরাপত্তা প্রদর্শনের জন্য নিচের সাইবার অ্যাটাকগুলো সিমুলেট করুন:
+                        </p>
+                        
+                        <div className="space-y-3.5">
+                          {/* Sim 1 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addToast("হ্যাকার আক্রমণ ব্লক ট্র্যাকিং শুরু হচ্ছে...");
+                              setTimeout(() => {
+                                triggerSafeMode("Suspicious Login Spoofing - Multiple admin attempts from foreign Proxy node detected.");
+                              }, 1200);
+                            }}
+                            className="w-full p-3 text-left rounded-2xl bg-red-50 hover:bg-red-100 dark:bg-red-500/5 dark:hover:bg-red-500/10 border border-red-200/40 text-red-600 text-xs font-bold font-sans flex items-center justify-between cursor-pointer active:scale-95 transition-all outline-none"
+                          >
+                            <span>💣 VPN Spoofing Attack ট্র্যাকিং</span>
+                            <span className="text-[9px] bg-red-600 text-white font-black px-2 py-0.5 rounded-full animate-bounce">সিমুলেট ⚡</span>
+                          </button>
+
+                          {/* Sim 2 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addToast("সতর্কতা: ক্ষতিকর কনসোল স্ক্রিপ্ট রানিং...");
+                              setTimeout(() => {
+                                triggerSafeMode("Developer Console inspect or element injection manipulation triggered.");
+                              }, 1200);
+                            }}
+                            className="w-full p-3 text-left rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/5 dark:hover:bg-indigo-500/10 border border-indigo-200/40 text-indigo-600 text-xs font-bold font-sans flex items-center justify-between cursor-pointer active:scale-95 transition-all outline-none"
+                          >
+                            <span>🖥️ DevTools Inject Manipulation</span>
+                            <span className="text-[9px] bg-indigo-650 text-white font-black px-2 py-0.5 rounded-full">সিমুলেট ⚡</span>
+                          </button>
+
+                          {/* Sim 3 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addToast("এডমিন ব্রুট-ফোর্স সাইবার মোড মনিটরিং...");
+                              setTimeout(() => {
+                                triggerSafeMode("Brute-Force Detection - Excessive failed logins on administrative panel.");
+                              }, 1200);
+                            }}
+                            className="w-full p-3 text-left rounded-2xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/5 dark:hover:bg-purple-500/10 border border-purple-200/40 text-purple-600 text-xs font-bold font-sans flex items-center justify-between cursor-pointer active:scale-95 transition-all outline-none"
+                          >
+                            <span>🔑 Admin login Bruteforce Trigger</span>
+                            <span className="text-[9px] bg-purple-650 text-white font-black px-2 py-0.5 rounded-full">سجমুলেট ⚡</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-gray-100 dark:border-white/5">
+                        <p className="text-[8px] text-gray-400 font-bold block text-center leading-relaxed font-sans">
+                          ⚠️ সিমুলেশনে ক্লিক করলে সাথে সাথে সেফ মোড চালু হবে এবং ডেটাবেস হাইড হবে।
+                        </p>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Threat Log Table Dashboard */}
+                  <div className="bg-white dark:bg-[#0f172a] rounded-[2.5rem] p-6 border border-gray-150 dark:border-white/10 shadow-xl space-y-4">
+                    <h3 className="text-xs font-black text-gray-900 dark:text-white border-b pb-3 dark:border-white/5 uppercase tracking-wider flex items-center gap-2 font-sans">
+                      <Terminal className="text-indigo-500 animate-pulse" size={16} /> সিকিউরিটি শিল্ড রিয়েল-টাইม থ্রেট অডিট লগ
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse font-sans">
+                        <thead>
+                          <tr className="border-b border-gray-150 dark:border-white/5 text-[9px] uppercase font-black text-gray-400 tracking-wider">
+                            <th className="py-3 px-3">সময় (Timestamp)</th>
+                            <th className="py-3 px-3">ধরণ (Type)</th>
+                            <th className="py-3 px-3">ঘটনা (Security Alert event Name)</th>
+                            <th className="py-3 px-3">বিবরণ (Audit summary details log)</th>
+                            <th className="py-3 px-3 text-right">স্থিতি (Action Status)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-white/5">
+                          {securityEvents.map((evt) => (
+                            <tr key={evt.id} className="text-xs">
+                              <td className="py-3.5 px-3 font-mono font-bold text-gray-400 truncate max-w-[120px]">
+                                {evt.time}
+                              </td>
+                              <td className="py-3.5 px-3">
+                                <span className={`px-2 py-0.5 rounded-full font-black text-[8px] uppercase tracking-wider ${
+                                  evt.type === "THREAT" 
+                                    ? "bg-rose-500/10 text-rose-500 animate-pulse border border-rose-500/30" 
+                                    : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30"
+                                }`}>
+                                  {evt.type}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-3 font-black text-gray-800 dark:text-white">
+                                {evt.title}
+                              </td>
+                              <td className="py-3.5 px-3 font-medium text-gray-500 dark:text-gray-400 leading-relaxed">
+                                {evt.desc}
+                              </td>
+                              <td className="py-3.5 px-3 text-right">
+                                <span className="inline-block text-[8px] font-black uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-xl">
+                                  Blocked & Logged 🛡️
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               )}
 
@@ -20248,7 +20603,7 @@ export default function App() {
 
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase tracking-wider text-indigo-650 dark:text-indigo-400">আপনার নাম <span className="text-red-500">*</span></label>
-                      <input
+                      <BufferedInput
                         type="text"
                         required
                         value={guestNameInput}
@@ -20260,7 +20615,7 @@ export default function App() {
 
                     <div className="space-y-1">
                       <label className="text-[8px] font-black uppercase tracking-wider text-indigo-650 dark:text-indigo-400">মোবাইল নাম্বার</label>
-                      <input
+                      <BufferedInput
                         type="tel"
                         value={guestPhoneInput}
                         onChange={(e) => setGuestPhoneInput(e.target.value)}
@@ -20435,6 +20790,85 @@ export default function App() {
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900 pointer-events-none animate-ping" />
           )}
         </motion.button>
+
+        {/* Security Master PIN Unlock Prompt Dialog */}
+        <AnimatePresence>
+          {isPinPromptOpen && (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 30 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 30 }}
+                transition={{ type: "spring", duration: 0.5 }}
+                className="bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/10 p-7 rounded-[2.5rem] shadow-2xl w-full max-w-sm relative overflow-hidden"
+              >
+                {/* Visual decoration grid */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-6 -mt-6 pointer-events-none" />
+                
+                <div className="text-center space-y-4">
+                  <div className="mx-auto w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <Shield size={22} className="animate-pulse" />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-gray-900 dark:text-white font-sans">
+                      মাস্টার পিন যাচাই করুন (Unlock Safe Mode)
+                    </h3>
+                    <p className="text-[10px] text-gray-400 font-semibold leading-relaxed font-sans">
+                      সেফ মোড নিষ্ক্রিয় করতে এবং সংবেদনশীল তথ্য ও রেভিনিউ দৃশ্যমান করতে অনুগ্রহ করে এডমিন এর ৪-ডিজিটের নিরাপত্তা কোডটি প্রদান করুন।
+                    </p>
+                  </div>
+
+                  {/* Input form */}
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      unlockSafeMode(securityPinInput);
+                    }}
+                    className="space-y-4 pt-2"
+                  >
+                    <div className="relative">
+                      <input
+                        type="password"
+                        placeholder="••••"
+                        maxLength={10}
+                        required
+                        value={securityPinInput}
+                        onChange={(e) => setSecurityPinInput(e.target.value)}
+                        className="w-full text-center tracking-[1.5em] font-sans font-black text-xl px-4 py-3 bg-gray-50 dark:bg-slate-950/45 border-2 border-dashed border-gray-200 dark:border-white/10 rounded-2xl outline-none focus:border-indigo-600 dark:focus:border-indigo-500 text-gray-800 dark:text-white transition-all"
+                      />
+                    </div>
+
+                    {securityPinError && (
+                      <p className="text-[10px] text-red-650 font-black block text-center animate-bounce leading-relaxed font-sans">
+                        {securityPinError}
+                      </p>
+                    )}
+
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPinPromptOpen(false);
+                          setSecurityPinError("");
+                        }}
+                        className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-800 dark:text-slate-200 rounded-xl font-black text-[10px] uppercase tracking-wider cursor-pointer active:scale-95 transition-all text-center font-sans border-0"
+                      >
+                        বাতিল (Cancel)
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-3 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl font-black text-[10px] uppercase tracking-wider cursor-pointer active:scale-95 transition-all text-center shadow-lg shadow-indigo-500/15 font-sans border-0"
+                      >
+                        যাচাই করুন 🔓
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

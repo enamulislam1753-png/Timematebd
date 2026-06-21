@@ -23,19 +23,21 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
   ...props
 }) => {
   const [localVal, setLocalVal] = useState<string>((value as string) || "");
+  const [isFocused, setIsFocused] = useState(false);
   const valueRef = useRef(value);
   valueRef.current = value;
 
+  // Sync to localVal only if NOT focused to prevent background re-renders from erasing typing state
   useEffect(() => {
-    if (value !== undefined) {
+    if (value !== undefined && !isFocused) {
       setLocalVal((value as string) || "");
     }
-  }, [value]);
+  }, [value, isFocused]);
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // Sync to parent on delay with 200ms stable debounce window to guarantee zero typing lag
+  // Sync to parent on delay with 150ms stable debounce window to guarantee zero typing lag
   useEffect(() => {
     const timer = setTimeout(() => {
       const currentParentVal = (valueRef.current as string) || "";
@@ -48,11 +50,19 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
           },
         });
       }
-    }, 200); 
+    }, 150); 
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(true);
+    if (props.onFocus) {
+      props.onFocus(e);
+    }
+  };
+
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(false);
     const currentParentVal = (valueRef.current as string) || "";
     if (localVal !== currentParentVal && onChangeRef.current) {
       onChangeRef.current({
@@ -75,6 +85,7 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
       name={name}
       value={localVal}
       onChange={(e) => setLocalVal(e.target.value)}
+      onFocus={handleFocus}
       onBlur={handleBlur}
     />
   );
@@ -92,14 +103,15 @@ export const BufferedTextArea: React.FC<BufferedTextAreaProps> = ({
   ...props
 }) => {
   const [localVal, setLocalVal] = useState<string>((value as string) || "");
+  const [isFocused, setIsFocused] = useState(false);
   const valueRef = useRef(value);
   valueRef.current = value;
 
   useEffect(() => {
-    if (value !== undefined) {
+    if (value !== undefined && !isFocused) {
       setLocalVal((value as string) || "");
     }
-  }, [value]);
+  }, [value, isFocused]);
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -116,11 +128,19 @@ export const BufferedTextArea: React.FC<BufferedTextAreaProps> = ({
           },
         });
       }
-    }, 200);
+    }, 150);
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
+  const handleFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(true);
+    if (props.onFocus) {
+      props.onFocus(e);
+    }
+  };
+
   const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    setIsFocused(false);
     const currentParentVal = (valueRef.current as string) || "";
     if (localVal !== currentParentVal && onChangeRef.current) {
       onChangeRef.current({
@@ -143,6 +163,7 @@ export const BufferedTextArea: React.FC<BufferedTextAreaProps> = ({
       name={name}
       value={localVal}
       onChange={(e) => setLocalVal(e.target.value)}
+      onFocus={handleFocus}
       onBlur={handleBlur}
     />
   );

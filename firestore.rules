@@ -203,10 +203,16 @@ service cloud.firestore {
     }
 
     match /support_rooms/{roomId} {
-      allow read, write: if true;
+      allow get: if true;
+      allow create: if true;
+      allow list: if isAdmin() || isStaff();
+      allow update: if isAdmin() || isStaff();
+      allow delete: if isAdmin() || isStaff();
 
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if true;
+        allow update, delete: if isAdmin() || isStaff();
       }
     }
 
