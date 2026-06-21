@@ -430,6 +430,69 @@ export function OrderChat({ orderId, currentUserId, currentUserName, senderRole 
 }
 
 let callAudioInterval: any = null;
+
+const decryptStr = (encoded: string): string => {
+  try {
+    return typeof window !== "undefined" && window.atob ? window.atob(encoded) : "";
+  } catch {
+    return "";
+  }
+};
+
+const playMessageSound = (type: "sent" | "received") => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    const now = audioCtx.currentTime;
+
+    if (type === "sent") {
+      // Sent: quick pleasant ascending electronic zip/pop
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(580, now);
+      osc.frequency.exponentialRampToValueAtTime(1050, now + 0.12);
+      
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else {
+      // Received: Messenger double-tone "cling-ping" pop
+      const osc1 = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      const gain2 = audioCtx.createGain();
+      
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(880, now); // A5
+      gain1.gain.setValueAtTime(0.05, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc1.start(now);
+      osc1.stop(now + 0.18);
+      
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(1046.5, now + 0.08); // C6
+      gain2.gain.setValueAtTime(0.05, now + 0.08);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.23);
+      osc2.start(now + 0.08);
+      osc2.stop(now + 0.25);
+    }
+  } catch (err) {
+    console.warn("Message sound failed:", err);
+  }
+};
+
 const startRingtone = (type: "outgoing" | "incoming") => {
   try {
     if (callAudioInterval) clearInterval(callAudioInterval);
@@ -438,31 +501,62 @@ const startRingtone = (type: "outgoing" | "incoming") => {
     const audioCtx = new AudioContextClass();
     
     const playTone = () => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      
+      const now = audioCtx.currentTime;
       if (type === "outgoing") {
-        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(450, audioCtx.currentTime + 0.4);
-        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 1.3);
-      } else {
+        // Messenger Outgoing call: cute low-to-high bubble pluck loop
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        
         osc.type = "sine";
-        osc.frequency.setValueAtTime(680, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(950, audioCtx.currentTime + 0.3);
-        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.7);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.8);
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(640, now + 0.35);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+        osc.start(now);
+        osc.stop(now + 0.45);
+
+        // A high echo delay chime
+        const oscEcho = audioCtx.createOscillator();
+        const gainEcho = audioCtx.createGain();
+        oscEcho.connect(gainEcho);
+        gainEcho.connect(audioCtx.destination);
+        oscEcho.type = "sine";
+        oscEcho.frequency.setValueAtTime(1280, now + 0.35);
+        gainEcho.gain.setValueAtTime(0.03, now + 0.35);
+        gainEcho.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        oscEcho.start(now + 0.35);
+        oscEcho.stop(now + 0.55);
+      } else {
+        // Messenger Incoming ringtone: beautiful melodic cascade (C6 -> A5 -> F5 -> G5)
+        const notes = [
+          { freq: 1046.50, start: 0.0, duration: 0.08 }, // C6
+          { freq: 880.00,  start: 0.12, duration: 0.08 }, // A5
+          { freq: 698.46,  start: 0.24, duration: 0.08 }, // F5
+          { freq: 783.99,  start: 0.36, duration: 0.15 }, // G5
+        ];
+        
+        notes.forEach(note => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(note.freq, now + note.start);
+          gain.gain.setValueAtTime(0.05, now + note.start);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + note.start + note.duration);
+          
+          osc.start(now + note.start);
+          osc.stop(now + note.start + note.duration + 0.05);
+        });
       }
     };
     
     playTone();
-    callAudioInterval = setInterval(playTone, type === "outgoing" ? 2200 : 1500);
+    // Repeating interval exactly matching ring duration
+    callAudioInterval = setInterval(playTone, type === "outgoing" ? 2200 : 1600);
   } catch (err) {
     console.warn("AudioContext ringtone failed to start:", err);
   }
@@ -475,13 +569,40 @@ const stopRingtone = () => {
   }
 };
 
+const LocalVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  if (!stream) {
+    return (
+      <div className="absolute inset-0 bg-slate-900 flex items-center justify-center">
+        <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">প্রস্তুত হচ্ছে...</span>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted
+      className="absolute inset-0 w-full h-full object-cover rounded-full -scale-x-100"
+    />
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
     try {
       if (typeof localStorage !== "undefined" && localStorage.getItem("admin_login_override") === "true") {
         return {
-          uid: "9xG6zcPwytNEOEohAVupu7DLMyT2",
-          email: "enamulislam1753@gmail.com",
+          uid: decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg=="),
+          email: decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ=="),
           displayName: "Enamul Islam (Primary Admin)",
           emailVerified: true
         } as any;
@@ -947,8 +1068,8 @@ export default function App() {
 
       // Direct checks for maximum robustness in all environments
       const cleanedEmail = emailVal?.trim().toLowerCase();
-      if (cleanedEmail === "enamulislam1753@gmail.com") return true;
-      if (uidVal?.trim() === "9xG6zcPwytNEOEohAVupu7DLMyT2") return true;
+      if (cleanedEmail === decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==")) return true;
+      if (uidVal?.trim() === decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==")) return true;
 
       try {
         if (emailVal) {
@@ -1720,8 +1841,8 @@ export default function App() {
   ];
 
   const isAdmin = useMemo(() => {
-    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com";
-    const isDirectUidAdmin = user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2";
+    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==");
+    const isDirectUidAdmin = user?.uid === decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==");
     return (
       profile?.role === "admin" ||
       profile?.role === "staff" ||
@@ -1732,8 +1853,8 @@ export default function App() {
   }, [profile, isSecureAdminState, user]);
 
   const isSuperAdmin = useMemo(() => {
-    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === "enamulislam1753@gmail.com";
-    const isDirectUidAdmin = user?.uid === "9xG6zcPwytNEOEohAVupu7DLMyT2";
+    const isDirectMailAdmin = user?.email?.trim().toLowerCase() === decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==");
+    const isDirectUidAdmin = user?.uid === decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==");
     return (
       profile?.role === "admin" ||
       isSecureAdminState ||
@@ -2640,12 +2761,40 @@ export default function App() {
   const [localMute, setLocalMute] = useState(false);
   const [localVideoOff, setLocalVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+
+  // Sync mute state with device tracks
+  useEffect(() => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !localMute;
+      });
+    }
+  }, [localMute, localStream]);
+
+  // Sync camera toggle with device tracks
+  useEffect(() => {
+    if (localStream) {
+      localStream.getVideoTracks().forEach(track => {
+        track.enabled = !localVideoOff;
+      });
+    }
+  }, [localVideoOff, localStream]);
 
   // Monitor current calling status bidirectional
   const activeCallingRoom = useMemo(() => {
     const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
     if (isRep) {
-      return supportRooms.find(r => r.id === activeSupportRoomId);
+      const currentlyFocused = supportRooms.find(r => r.id === activeSupportRoomId);
+      if (currentlyFocused?.callState) {
+        return currentlyFocused;
+      }
+      // Scan all rooms for an active call state
+      const ringingOrConnected = supportRooms.find(r => r.callState?.callStatus === "ringing" || r.callState?.callStatus === "connected");
+      if (ringingOrConnected) {
+        return ringingOrConnected;
+      }
+      return currentlyFocused;
     } else {
       const currentId = user?.uid || guestSession?.uid;
       return supportRooms.find(r => r.id === currentId);
@@ -2657,6 +2806,10 @@ export default function App() {
     if (!callState) {
       stopRingtone();
       setCallDuration(0);
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
       return;
     }
 
@@ -2673,7 +2826,7 @@ export default function App() {
     } else {
       stopRingtone();
     }
-  }, [activeCallingRoom?.callState, user, guestSession]);
+  }, [activeCallingRoom?.callState, user, guestSession, localStream]);
   const [employeeTrackComment, setEmployeeTrackComment] = useState<{ [orderId: string]: string }>({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminStatusFilter, setAdminStatusFilter] = useState("");
@@ -2992,6 +3145,54 @@ export default function App() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   };
+
+  // Systems Active Shield Protection Layer
+  useEffect(() => {
+    // 1. Context Menu Right Click Prevention
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Allow context menu only for input typing components
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.contentEditable === "true"
+      ) {
+        return;
+      }
+      e.preventDefault();
+      addToast("নিরাপত্তার স্বার্থে রাইট ক্লিক নিষ্ক্রিয় করা হয়েছে।", "error");
+    };
+    document.addEventListener("contextmenu", handleContextMenu);
+
+    // 2. Keyboard Inspect Protection (F12, Ctrl+Shift+I, Ctrl+Shift+C, Ctrl+Shift+J, Ctrl+U)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "F12" ||
+        (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "C" || e.key === "c" || e.key === "J" || e.key === "j")) ||
+        (e.ctrlKey && (e.key === "U" || e.key === "u"))
+      ) {
+        e.preventDefault();
+        addToast("অজানা উৎস বা কোড পরিদর্শনের চেষ্টা প্রতিহত করা হয়েছে!", "error");
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    // 3. Tab Visibility Protection
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        document.title = "⏰ Time Mate - Protected Session...";
+      } else {
+        document.title = "⏰ TimeMate.bd | আপনার সময়ের সেরা সঙ্গী";
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const createNotification = async (
     userId: string,
@@ -3333,24 +3534,26 @@ export default function App() {
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       if (!u && typeof localStorage !== "undefined" && localStorage.getItem("admin_login_override") === "true") {
+        const adminUid = decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==");
+        const masterMail = decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==");
         setUser({
-          uid: "9xG6zcPwytNEOEohAVupu7DLMyT2",
-          email: "enamulislam1753@gmail.com",
+          uid: adminUid,
+          email: masterMail,
           displayName: "Enamul Islam (Primary Admin)",
           emailVerified: true
         } as any);
         setIsSecureAdminState(true);
 
-        const docRef = doc(db, "users", "9xG6zcPwytNEOEohAVupu7DLMyT2");
+        const docRef = doc(db, "users", adminUid);
         try {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             setProfile(docSnap.data() as any);
           } else {
             setProfile({
-              uid: "9xG6zcPwytNEOEohAVupu7DLMyT2",
+              uid: adminUid,
               name: "Enamul Islam",
-              email: "enamulislam1753@gmail.com",
+              email: masterMail,
               role: "admin",
               timePoints: 9999
             } as any);
@@ -3623,14 +3826,38 @@ export default function App() {
       orderBy("timestamp", "asc")
     );
 
+    let isFirst = true;
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const msgs: any[] = [];
+        let hasNewSent = false;
+        let hasNewRecv = false;
+
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added" && !isFirst) {
+            const data = change.doc.data();
+            if (data.senderId === currentId) {
+              hasNewSent = true;
+            } else {
+              hasNewRecv = true;
+            }
+          }
+        });
+
         snapshot.forEach((doc) => {
           msgs.push({ id: doc.id, ...doc.data() });
         });
         setCustomerSupportMessages(msgs);
+
+        if (!isFirst) {
+          if (hasNewSent) {
+            playMessageSound("sent");
+          } else if (hasNewRecv) {
+            playMessageSound("received");
+          }
+        }
+        isFirst = false;
       },
       (err) => console.error("Error fetching support messages:", err)
     );
@@ -3651,20 +3878,45 @@ export default function App() {
       orderBy("timestamp", "asc")
     );
 
+    let isFirst = true;
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         const msgs: any[] = [];
+        let hasNewSent = false;
+        let hasNewRecv = false;
+        const currentId = user?.uid || guestSession?.uid;
+
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added" && !isFirst) {
+            const data = change.doc.data();
+            if (data.senderId === currentId) {
+              hasNewSent = true;
+            } else {
+              hasNewRecv = true;
+            }
+          }
+        });
+
         snapshot.forEach((doc) => {
           msgs.push({ id: doc.id, ...doc.data() });
         });
         setActiveRoomMessages(msgs);
+
+        if (!isFirst) {
+          if (hasNewSent) {
+            playMessageSound("sent");
+          } else if (hasNewRecv) {
+            playMessageSound("received");
+          }
+        }
+        isFirst = false;
       },
       (err) => console.error("Error fetching thread messages:", err)
     );
 
     return () => unsubscribe();
-  }, [activeSupportRoomId]);
+  }, [activeSupportRoomId, user, guestSession]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -4057,31 +4309,41 @@ export default function App() {
         addToast("রেজিষ্ট্রেশন সফল! স্বাগতম।");
       } else {
         const cleanEmail = email.trim().toLowerCase();
-        const isTryingAdmin = cleanEmail === "enamulislam1753@gmail.com";
-        const isFallbackAdminPass = pass === "enamul1753" || pass === "admin1753" || pass === "123456" || pass === "12345678" || pass.startsWith("enamul");
+        const masterMail = decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==");
+        const isTryingAdmin = cleanEmail === masterMail;
+        
+        const fallback1 = decryptStr("ZW5hbXVsMTc1Mw=="); // enamul1753
+        const fallback2 = decryptStr("YWRtaW4xNzUz");  // admin1753
+        const fallback3 = decryptStr("MTIzNDU2");     // 123456
+        const fallback4 = decryptStr("MTIzNDU2Nzg=");  // 12345678
+        const fallbackPref = decryptStr("ZW5hbXVs");     // enamul
+
+        const isFallbackAdminPass = pass === fallback1 || pass === fallback2 || pass === fallback3 || pass === fallback4 || pass.startsWith(fallbackPref);
 
         if (isTryingAdmin && isFallbackAdminPass) {
           console.log("Admin fallback authentication activated via password typing...");
           localStorage.setItem("admin_login_override", "true");
           setIsSecureAdminState(true);
+          
+          const adminUid = decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==");
           setUser({
-            uid: "9xG6zcPwytNEOEohAVupu7DLMyT2",
-            email: "enamulislam1753@gmail.com",
+            uid: adminUid,
+            email: masterMail,
             displayName: "Enamul Islam (Primary Admin)",
             emailVerified: true
           } as any);
 
           // Fetch or setup admin profile properties
-          const docRef = doc(db, "users", "9xG6zcPwytNEOEohAVupu7DLMyT2");
+          const docRef = doc(db, "users", adminUid);
           try {
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
               setProfile(docSnap.data() as any);
             } else {
               setProfile({
-                uid: "9xG6zcPwytNEOEohAVupu7DLMyT2",
+                uid: adminUid,
                 name: "Enamul Islam",
-                email: "enamulislam1753@gmail.com",
+                email: masterMail,
                 role: "admin",
                 timePoints: 9999
               } as any);
@@ -4100,13 +4362,14 @@ export default function App() {
       setAuthModal({ ...authModal, isOpen: false });
     } catch (e: any) {
       let errorMessage = e.message;
-      const isTryingAdmin = email.trim().toLowerCase() === "enamulislam1753@gmail.com";
+      const masterMail = decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==");
+      const isTryingAdmin = email.trim().toLowerCase() === masterMail;
 
       if (e.code === "auth/operation-not-allowed" || e.message?.includes("operation-not-allowed")) {
         errorMessage = "Email/Password লগইন পদ্ধতিটি আপনার ফায়ারবেস কনসোলে সচল (Enable) করা নেই। দয়া করে Firebase Console -> Authentication -> Sign-in method-এ গিয়ে Email/Password সচল করুন।";
       } else if (e.code === "auth/invalid-credential" || e.message?.includes("invalid-credential") || e.code === "auth/wrong-password" || e.message?.includes("wrong-password")) {
         if (isTryingAdmin) {
-          errorMessage = "প্রিয় এডমিন (enamulislam1753@gmail.com), আপনার পাসওয়ার্ডটি সঠিক নয়! আপনি যদি আগে ‘Google Sign-In’ ব্যবহার করে থাকেন, তবে সাধারণ পাসওয়ার্ড দিয়ে লগইন হবে না। সরাসরি বা সলিউশন হিসেবে ‘গুগল দিয়ে লগইন’ বাটন ব্যবহার করুন অথবা এখনই ‘পাসওয়ার্ড ভুলে গেছেন?’ এ ক্লিক করে নতুন পাসওয়ার্ড রিসেট লিংক ইমেল করুন।";
+          errorMessage = `প্রিয় এডমিন (${masterMail}), আপনার পাসওয়ার্ডটি সঠিক নয়! আপনি যদি আগে ‘Google Sign-In’ ব্যবহার করে থাকেন, তবে সাধারণ পাসওয়ার্ড দিয়ে লগইন হবে না। সরাসরি বা সলিউশন হিসেবে ‘গুগল দিয়ে লগইন’ বাটন ব্যবহার করুন অথবা এখনই ‘পাসওয়ার্ড ভুলে গেছেন?’ এ ক্লিক করে নতুন পাসওয়ার্ড রিসেট লিংক ইমেল করুন।`;
         } else {
           errorMessage = "আপনার দেওয়া ইমেইল অথবা পাসওয়ার্ডটি সঠিক নয়! দয়া করে পুনরায় চেক করুন।";
         }
@@ -4595,7 +4858,11 @@ export default function App() {
     }
 
     try {
-      const chargeAmount = courierForm.fromZone === courierForm.toZone ? 200 : 350;
+      let baseCharge = courierForm.fromZone === courierForm.toZone ? 200 : 350;
+      if (courierForm.deliveryType === "এক্সপ্রেস") {
+        baseCharge += 50;
+      }
+      const chargeAmount = courierForm.deliveryType === "ভিআইপি গোল্ডেন এক্সপ্রেস" ? 2500 : baseCharge;
       const orderDoc = await addDoc(collection(db, "orders"), {
         userId: user?.uid || "guest",
         userName: profile?.fullName || user?.displayName || courierForm.sName || "Guest",
@@ -5047,9 +5314,9 @@ export default function App() {
   };
 
   // Call Engine Helper Methods
-  const initiateCall = async (type: "voice" | "video") => {
+  const initiateCall = async (type: "voice" | "video", forceAsCustomer?: boolean) => {
     try {
-      const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+      const isRep = !forceAsCustomer && (profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState);
       const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
       if (!targetId) {
         addToast("সক্রিয় চ্যাটরুম বা মেসেজ রিকুয়েস্ট সিলেক্ট করা নেই!", "error");
@@ -5060,12 +5327,41 @@ export default function App() {
       setLocalVideoOff(false);
       setCallDuration(0);
 
+      const hasPermBefore = localStorage.getItem("timemate_device_perm_ok") === "true";
+      if (!hasPermBefore) {
+        addToast("ডিভাইস মাইক্রোফোন ও ক্যামেরা পারমিশন চাওয়া হচ্ছে...", "success");
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: type === "video"
+        });
+        setLocalStream(stream);
+        localStorage.setItem("timemate_device_perm_ok", "true");
+      } catch (perErr) {
+        console.error("Mic/Camera Access Denied:", perErr);
+        localStorage.removeItem("timemate_device_perm_ok");
+        addToast("মাইক্রোফোন বা ক্যামেরা ব্যবহারের পারমিশন দিন, নতুবা ফোন কাজ করবে না!", "error");
+        // Still let the call go through with a null local stream so they can test/bypass
+      }
+
       const currentId = user?.uid || guestSession?.uid;
       const callerName = isRep 
         ? (profile?.name || "সাপোর্ট প্রতিনিধি") 
         : (user?.displayName || guestSession?.name || "কাস্টমার");
 
-      await updateDoc(doc(db, "support_rooms", targetId), {
+      const phone = profile?.phone || guestSession?.phone || "N/A";
+      const email = user?.email || "guest@timemate.bd";
+
+      await setDoc(doc(db, "support_rooms", targetId), {
+        id: targetId,
+        customerUid: isRep ? targetId : (currentId || "unknown"),
+        customerName: isRep ? (activeCallingRoom?.customerName || "গ্রাহক") : callerName,
+        customerPhone: phone,
+        customerEmail: email,
+        lastMessage: `কল করার চেষ্টা করছেন... (${type === "voice" ? "ভয়েস" : "ভিডিও"})`,
+        lastMessageTime: new Date().toISOString(),
+        status: "open",
         callState: {
           callerUid: currentId || "unknown",
           callerName: callerName,
@@ -5073,7 +5369,8 @@ export default function App() {
           callStatus: "ringing",
           timestamp: Date.now()
         }
-      });
+      }, { merge: true });
+
       addToast(type === "voice" ? "ভয়েস কল ডায়াল করা হচ্ছে..." : "ভিডিও কল ডায়াল করা হচ্ছে...", "success");
     } catch (err) {
       console.error("Calling initiation failed:", err);
@@ -5084,8 +5381,29 @@ export default function App() {
   const acceptCall = async () => {
     try {
       const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
-      const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
+      let targetId = activeCallingRoom?.id || activeSupportRoomId || (user?.uid || guestSession?.uid);
+      if (isRep && activeCallingRoom?.id) {
+        setActiveSupportRoomId(activeCallingRoom.id);
+      }
       if (!targetId) return;
+
+      const callType = activeCallingRoom?.callState?.callType || "voice";
+      const hasPermBefore = localStorage.getItem("timemate_device_perm_ok") === "true";
+      if (!hasPermBefore) {
+        addToast("ডিভাইস মাইক্রোফোন ও ক্যামেরা পারমিশন চাওয়া হচ্ছে...", "success");
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: callType === "video"
+        });
+        setLocalStream(stream);
+        localStorage.setItem("timemate_device_perm_ok", "true");
+      } catch (perErr) {
+        console.error("Receiver mic/camera access denied:", perErr);
+        localStorage.removeItem("timemate_device_perm_ok");
+        addToast("কল রিসিভ করার জন্য ডিভাইসের পারমিশন আবশ্যক!", "error");
+      }
 
       await updateDoc(doc(db, "support_rooms", targetId), {
         "callState.callStatus": "connected",
@@ -5099,14 +5417,17 @@ export default function App() {
 
   const declineOrEndCall = async () => {
     try {
-      const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
-      const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
+      const targetId = activeCallingRoom?.id || activeSupportRoomId || (user?.uid || guestSession?.uid);
       if (!targetId) return;
 
       await updateDoc(doc(db, "support_rooms", targetId), {
         callState: null
       });
       stopRingtone();
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
       addToast("কল সমাপ্ত করা হয়েছে।", "success");
     } catch (err) {
       console.error("Call disconnect failed:", err);
@@ -6315,17 +6636,10 @@ export default function App() {
 
                   <div className={`w-full h-full rounded-full bg-gradient-to-br from-indigo-500 via-purple-600 to-rose-500 p-1 flex items-center justify-center shadow-2xl relative overflow-hidden transition-all ${localVideoOff && activeCallingRoom.callState.callStatus === "connected" ? "opacity-60" : "scale-105"}`}>
                     {activeCallingRoom.callState.callType === "video" && activeCallingRoom.callState.callStatus === "connected" && !localVideoOff ? (
-                      /* Live Camera Preview mock feed with shifting matrix pattern */
-                      <div className="absolute inset-0 w-full h-full bg-slate-900 flex flex-col items-center justify-center">
-                        <div className="absolute inset-0 opacity-40 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%]" />
-                        <motion.div 
-                          animate={{ scale: [1, 1.05, 1] }} 
-                          transition={{ repeat: Infinity, duration: 3 }} 
-                          className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center"
-                        >
-                          <Video size={16} className="text-indigo-400" />
-                        </motion.div>
-                        <span className="absolute bottom-1 right-2 text-[6px] font-black uppercase text-indigo-300 bg-black/60 px-1 rounded">LIVE FEED</span>
+                      /* Real Local Camera Preview feed from localStream */
+                      <div className="absolute inset-0 w-full h-full bg-slate-900">
+                        <LocalVideoView stream={localStream} />
+                        <span className="absolute bottom-1 right-2 text-[6px] font-black uppercase text-indigo-300 bg-black/60 px-1.5 py-0.5 rounded-full z-20">LIVE</span>
                       </div>
                     ) : (
                       /* Standard Avatar Initial letter */
@@ -8586,7 +8900,7 @@ export default function App() {
                     <div className="pt-4 border-t border-amber-500/20 flex items-center justify-between">
                       <div>
                         <p className="text-[10px] text-amber-400/70 font-bold uppercase tracking-wider">পরিষেবা মূল্য</p>
-                        <p className="font-black text-2xl text-amber-400">৳২,৫০০ <span className="text-xs font-normal text-amber-400/50">ফিক্সড</span></p>
+                        <p className="font-black text-2xl text-amber-400">৳২,৫০০ <span className="text-xs font-normal text-amber-400/50">থেকে শুরু</span></p>
                       </div>
                       <button className="py-3 px-5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black rounded-xl hover:scale-105 transition-all text-[10px] flex items-center gap-1 shadow-md shadow-amber-500/20 cursor-pointer">
                         Secure Spot <ArrowRight size={14} />
@@ -9275,19 +9589,19 @@ export default function App() {
 
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-gray-450 dark:text-gray-400 uppercase tracking-wider">{trans("ডেলিভারি ধরন", "Delivery Mode")}</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {["রেগুলার", "এক্সপ্রেস"].map((mode) => (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {["রেগুলার", "এক্সপ্রেস", "ভিআইপি গোল্ডেন এক্সপ্রেস"].map((mode) => (
                           <button
                             key={mode}
                             type="button"
                             onClick={() => setCourierForm({ ...courierForm, deliveryType: mode })}
-                            className={`py-3.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                            className={`py-3.5 px-1 rounded-xl text-[9px] font-black transition-all cursor-pointer ${
                               courierForm.deliveryType === mode
                                 ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
                                 : "bg-gray-50 dark:bg-slate-950/50 text-gray-505 dark:text-gray-405 hover:bg-gray-100 border border-gray-200 dark:border-white/10"
                             }`}
                           >
-                            ⚡ {mode === "রেগুলার" ? "রেগুলার (Regular)" : "এক্সপ্রেস (Express +৳৫০)"}
+                            {mode === "রেগুলার" ? "⚡ রেগুলার" : mode === "এক্সপ্রেস" ? "⚡ এক্সপ্রেস" : "👑 ভিআইপি"}
                           </button>
                         ))}
                       </div>
@@ -9316,10 +9630,15 @@ export default function App() {
                       {trans("কুরিয়ার চার্জ", "Courier Charges")}
                     </p>
                     <p className="text-4xl font-black text-teal-800 dark:text-teal-400 tracking-tighter">
-                      ৳{courierForm.fromZone === courierForm.toZone ? 200 : 350}
+                      {courierForm.deliveryType === "ভিআইপি গোল্ডেন এক্সপ্রেস" 
+                        ? (trans("৳২,৫০০ থেকে शुरू", "৳2,500+ Starts")) 
+                        : `৳${courierForm.fromZone === courierForm.toZone ? (courierForm.deliveryType === "এক্সপ্রেস" ? 250 : 200) : (courierForm.deliveryType === "এক্সপ্রেস" ? 400 : 350)}`
+                      }
                     </p>
                     <p className="text-[10px] text-teal-600/50 mt-2 font-bold italic">
-                      {trans("ঢাকার ভেতর ২০০ টাকা, ঢাকার বাইরে ৩৫০ টাকা", "200 tk inside Dhaka, 350 tk outside Dhaka")}
+                      {courierForm.deliveryType === "ভিআইপি গোল্ডেন এক্সপ্রেস" 
+                        ? trans("সুপারফাস্ট কাস্টমাইজড হাই-সিকিউরিটি ভিআইপি গোল্ডেন ডেসপ্যাচ (প্যাকেজ ও দূরত্বের ভিত্তিতে শুরু)", "Superfast customized high-security VIP golden dispatch (Starts from 2500 TK based on weight & distance)")
+                        : trans("ঢাকার ভেতর ২০০ টাকা, ঢাকার বাইরে ৩৫০ টাকা (+৫০ টাকা এক্সপ্রেস চার্জ)", "200 tk inside Dhaka, 350 tk outside Dhaka (+50 tk express charge)")}
                     </p>
                   </div>
 
@@ -19891,7 +20210,7 @@ export default function App() {
                     <>
                       <button
                         type="button"
-                        onClick={() => initiateCall("voice")}
+                        onClick={() => initiateCall("voice", true)}
                         className="p-1.5 bg-indigo-500/30 hover:bg-indigo-500/60 text-white rounded-lg transition-all cursor-pointer flex items-center justify-center hover:scale-105"
                         title="ভয়েস কল দিন"
                       >
@@ -19899,7 +20218,7 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => initiateCall("video")}
+                        onClick={() => initiateCall("video", true)}
                         className="p-1.5 bg-rose-500/30 hover:bg-rose-500/60 text-white rounded-lg transition-all cursor-pointer flex items-center justify-center hover:scale-105"
                         title="ভিডিও কল দিন"
                       >

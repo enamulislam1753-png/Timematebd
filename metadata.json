@@ -1,6 +1,6 @@
 {
   "name": "TimeMate BD",
   "description": "আপনার সময়ের সেরা সঙ্গী — বাজার, টিকেট বুকিং, এবং এক্সপ্রেস কুরিয়ার সার্ভিস এক ক্লিকে।",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
