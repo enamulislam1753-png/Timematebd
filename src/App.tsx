@@ -50,6 +50,11 @@ import {
   ArrowRight,
   Star,
   Phone,
+  Video,
+  PhoneOff,
+  Mic,
+  MicOff,
+  VideoOff,
   Facebook,
   X,
   CreditCard,
@@ -330,7 +335,7 @@ export function OrderChat({ orderId, currentUserId, currentUserName, senderRole 
   }, [orderId]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    chatEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages]);
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -423,6 +428,52 @@ export function OrderChat({ orderId, currentUserId, currentUserName, senderRole 
     </div>
   );
 }
+
+let callAudioInterval: any = null;
+const startRingtone = (type: "outgoing" | "incoming") => {
+  try {
+    if (callAudioInterval) clearInterval(callAudioInterval);
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    
+    const playTone = () => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      
+      if (type === "outgoing") {
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(450, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1.3);
+      } else {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(680, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(950, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.7);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.8);
+      }
+    };
+    
+    playTone();
+    callAudioInterval = setInterval(playTone, type === "outgoing" ? 2200 : 1500);
+  } catch (err) {
+    console.warn("AudioContext ringtone failed to start:", err);
+  }
+};
+
+const stopRingtone = () => {
+  if (callAudioInterval) {
+    clearInterval(callAudioInterval);
+    callAudioInterval = null;
+  }
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
@@ -2272,7 +2323,7 @@ export default function App() {
         setLoadingStatusText("🎉 স্বাগতম! টাইমমেট বিডিতে আপনার প্রবেশ নিশ্চিত...");
         clearInterval(interval);
       }
-    }, 80);
+    }, 15);
 
     return () => {
       clearInterval(interval);
@@ -2281,6 +2332,13 @@ export default function App() {
 
   // Sync the opening screen dismiss and auth check
   useEffect(() => {
+    // If the cached or active authenticated user is resolved, bypass and close modal instantly
+    if (user) {
+      setIsOpening(false);
+      setAuthModal({ isOpen: false, mode: "LOGIN" });
+      return;
+    }
+
     if (loadingPercent === 100 && !loading) {
       const waitTimer = setTimeout(() => {
         setIsOpening(false);
@@ -2560,6 +2618,7 @@ export default function App() {
   // Customer Support Live Chat Real-Time States
   const [supportRooms, setSupportRooms] = useState<any[]>([]);
   const [activeSupportRoomId, setActiveSupportRoomId] = useState<string | null>(null);
+
   const [showSpamRooms, setShowSpamRooms] = useState(false);
   const [isSupportWidgetOpen, setIsSupportWidgetOpen] = useState(false);
   const [isSupportMenuOpen, setIsSupportMenuOpen] = useState(false);
@@ -2576,6 +2635,45 @@ export default function App() {
   const [customerChatMessage, setCustomerChatMessage] = useState("");
   const [adminChatMessage, setAdminChatMessage] = useState("");
   const [customerSupportMessages, setCustomerSupportMessages] = useState<any[]>([]);
+
+  // Real-Time Calling System States
+  const [localMute, setLocalMute] = useState(false);
+  const [localVideoOff, setLocalVideoOff] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+
+  // Monitor current calling status bidirectional
+  const activeCallingRoom = useMemo(() => {
+    const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+    if (isRep) {
+      return supportRooms.find(r => r.id === activeSupportRoomId);
+    } else {
+      const currentId = user?.uid || guestSession?.uid;
+      return supportRooms.find(r => r.id === currentId);
+    }
+  }, [supportRooms, profile, isSecureAdminState, activeSupportRoomId, user, guestSession]);
+
+  useEffect(() => {
+    const callState = activeCallingRoom?.callState;
+    if (!callState) {
+      stopRingtone();
+      setCallDuration(0);
+      return;
+    }
+
+    if (callState.callStatus === "ringing") {
+      const currentId = user?.uid || guestSession?.uid;
+      const isCaller = callState.callerUid === currentId;
+      startRingtone(isCaller ? "outgoing" : "incoming");
+    } else if (callState.callStatus === "connected") {
+      stopRingtone();
+      const interval = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      stopRingtone();
+    }
+  }, [activeCallingRoom?.callState, user, guestSession]);
   const [employeeTrackComment, setEmployeeTrackComment] = useState<{ [orderId: string]: string }>({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminStatusFilter, setAdminStatusFilter] = useState("");
@@ -3030,87 +3128,161 @@ export default function App() {
     }
   };
 
-  const startMobileVerification = (phoneNum: string) => {
+  const startMobileVerification = async (phoneNum: string) => {
     if (!user) return;
-    const generatedCode = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
-    setVerificationModal({
-      isOpen: true,
-      phoneNumber: phoneNum || "",
-      step: phoneNum ? "OTP" : "INPUT",
-      otpCode: generatedCode,
-      enteredOtp: "",
-      timer: 60,
-    });
+    if (!phoneNum) {
+      setVerificationModal({
+        isOpen: true,
+        phoneNumber: "",
+        step: "INPUT",
+        otpCode: "",
+        enteredOtp: "",
+        timer: 60,
+        type: "phone"
+      });
+      return;
+    }
 
-    if (phoneNum) {
-      addToast(
-        `✉️ ডেমো ওটিপি সেন্ড হয়েছে! ওটিপি কোড: ${generatedCode}`,
-        "success",
-      );
+    addToast("📨 ওটিপি কোড পাঠানো হচ্ছে...");
+    try {
+      const res = await fetch("/api/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: phoneNum, type: "phone" })
+      });
+      if (!res.ok) throw new Error("Backend SMS dispatch failure.");
+      const data = await res.json();
+      
+      setVerificationModal({
+        isOpen: true,
+        phoneNumber: phoneNum,
+        step: "OTP",
+        otpCode: data.code || "",
+        enteredOtp: "",
+        timer: 60,
+        type: "phone"
+      });
+      addToast("✉️ আপনার ফোনে ওটিপি পাঠানো হয়েছে!", "success");
+    } catch (e) {
+      addToast("ফোনে ওটিপি পাঠাতে ব্যর্থ হয়েছে।", "error");
     }
   };
 
-  const sendOtpToPhone = (phoneNum: string) => {
+  const startEmailVerification = async () => {
+    if (!user || !user.email) return;
+    const emailAddr = user.email;
+    addToast("📧 ইমেইল ওটিপি পাঠানো হচ্ছে...");
+    try {
+      const res = await fetch("/api/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: emailAddr, type: "email" })
+      });
+      if (!res.ok) throw new Error("Backend SMTP email dispatch failure.");
+      const data = await res.json();
+      
+      setVerificationModal({
+        isOpen: true,
+        phoneNumber: "",
+        emailAddress: emailAddr,
+        step: "OTP",
+        otpCode: data.code || "",
+        enteredOtp: "",
+        timer: 60,
+        type: "email"
+      });
+      addToast("✉️ আপনার ইমেলে কোড পাঠানো হয়েছে! ইনবক্স চেক করুন।", "success");
+    } catch(e) {
+      addToast("ওটিপি কোড পাঠাতে ব্যর্থ হয়েছে।", "error");
+    }
+  };
+
+  const sendOtpToPhone = async (phoneNum: string) => {
     const cleanPhone = phoneNum.trim();
     if (!cleanPhone || cleanPhone.length < 11) {
       addToast("দয়া করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন", "error");
       return;
     }
-    const generatedCode = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
-    setVerificationModal((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        phoneNumber: cleanPhone,
-        step: "OTP",
-        otpCode: generatedCode,
-        timer: 60,
-      };
-    });
-    addToast(
-      `✉️ ডেমো ওটিপি সেন্ড হয়েছে! ওটিপি কোড: ${generatedCode}`,
-      "success",
-    );
+    
+    addToast("📨 ওটিপি কোড পাঠানো হচ্ছে...");
+    try {
+      const res = await fetch("/api/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: cleanPhone, type: "phone" })
+      });
+      if (!res.ok) throw new Error("Real-time SMS dispatch rejected");
+      const data = await res.json();
+
+      setVerificationModal((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          phoneNumber: cleanPhone,
+          step: "OTP",
+          otpCode: data.code || "",
+          timer: 60,
+          type: "phone"
+        };
+      });
+      addToast(`✉️ আপনার ফোনে ৬-ডিজিটের ভেরিফিকেশন কোড পাঠানো হয়েছে!`, "success");
+    } catch (e) {
+      addToast("ফোনে ওটিপি পাঠাতে ব্যর্থ হয়েছে।", "error");
+    }
   };
 
   const confirmVerificationOtp = async () => {
     if (!user || !verificationModal) return;
-    if (verificationModal.enteredOtp.trim() !== verificationModal.otpCode) {
-      addToast("ভুল ওটিপি কোড! আবার চেক করুন।", "error");
-      return;
-    }
-
+    
     try {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        phone: verificationModal.phoneNumber,
-        mobileVerified: true,
-        timePoints: (profile?.timePoints || 0) + 100,
+      const target = verificationModal.type === "email" ? verificationModal.emailAddress : verificationModal.phoneNumber;
+      const res = await fetch("/api/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, code: verificationModal.enteredOtp })
       });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "ভুল ওটিপি কোড! অনুগ্রহ করে আবার চেক করুন।");
+      }
 
-      await createNotification(
-        user.uid,
-        "মোবাইল ভেরিফিকেশন সফল! ✅",
-        `আপনার মোবাইল নম্বর (${verificationModal.phoneNumber}) সফলভাবে ভেরিফাই করা হয়েছে। আপনি ফোন ভেরিফিকেশন বোনাস হিসেবে ১০০ কয়েনও পেয়েছেন!`,
-        "promo",
-      );
+      if (verificationModal.type === "email") {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          emailVerified: true,
+          timePoints: (profile?.timePoints || 0) + 150
+        });
+        
+        await createNotification(
+          user.uid,
+          "ইমেইল ভেরিফিকেশন সফল! 📧",
+          `আপনার ইমেইল ঠিকানাটি সফলভাবে ভেরিফাই করা হয়েছে। আপনি ইমেইল ভেরিফিকেশন বোনাস হিসেবে ১৫০ কয়েন পেয়েছেন!`,
+          "promo"
+        );
+        addToast("ইমেইল সফলভাবে ভেরিফাই সম্পন্ন হয়েছে! ✅", "success");
+      } else {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          phone: verificationModal.phoneNumber,
+          mobileVerified: true,
+          timePoints: (profile?.timePoints || 0) + 100
+        });
 
-      addToast(
-        "মোবাইল নম্বর সফলভাবে ভেরিফাই করা হয়েছে! বোনাস ১০০ কয়েন ক্লেইম সফল। ✨",
-        "success",
-      );
+        await createNotification(
+          user.uid,
+          "মোবাইল ভেরিফিকেশন সফল! ✅",
+          `আপনার মোবাইল নম্বর (${verificationModal.phoneNumber}) সফলভাবে ভেরিফাই করা হয়েছে। আপনি ফোন ভেরিফিকেশন বোনাস হিসেবে ১০০ কয়েনও পেয়েছেন!`,
+          "promo"
+        );
+        addToast("মোবাইল নম্বর সফলভাবে ভেরিফাই করা হয়েছে! বোনাস ১০০ কয়েন ক্লেইম সফল। ✨", "success");
+      }
+      
       playSuccessSound();
       setVerificationModal(null);
     } catch (e: any) {
       console.error(e);
-      addToast(
-        "ভেরিফিকেশনে সমস্যা হয়েছে, অনুগ্রহ করে আবার চেষ্টা করুন।",
-        "error",
-      );
+      addToast(e.message || "ভেরিফিকেশনে সমস্যা হয়েছে, অনুগ্রহ করে আবার চেষ্টা করুন।", "error");
     }
   };
   // ------------------------------------
@@ -3260,18 +3432,9 @@ export default function App() {
     };
   }, []);
 
-  // Force mobile verification for admin users upon login
+  // Force mobile verification for admin users upon login bypassed as per user instruction
   useEffect(() => {
-    if (
-      profile &&
-      profile.role === "admin" &&
-      !profile.mobileVerified &&
-      !loading
-    ) {
-      if (!verificationModal || !verificationModal.isOpen) {
-        startMobileVerification(profile.phone || "");
-      }
-    }
+    // Admin login OTP verification bypassed
   }, [profile, loading]);
 
   // Handling Firestore Errors (from firebase-skill)
@@ -3505,13 +3668,13 @@ export default function App() {
 
   useEffect(() => {
     setTimeout(() => {
-      adminChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      adminChatEndRef.current?.scrollIntoView({ behavior: "auto" });
     }, 100);
   }, [activeRoomMessages]);
 
   useEffect(() => {
     setTimeout(() => {
-      customerChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      customerChatEndRef.current?.scrollIntoView({ behavior: "auto" });
     }, 100);
   }, [customerSupportMessages]);
 
@@ -3533,11 +3696,12 @@ export default function App() {
 
     // Listen for orders
     const ordersQuery = (isAdminView || profile?.role === "employee")
-      ? query(collection(db, "orders"), orderBy("timestamp", "desc"))
+      ? query(collection(db, "orders"), orderBy("timestamp", "desc"), limit(150))
       : query(
           collection(db, "orders"),
           where("userId", "==", user.uid),
           orderBy("timestamp", "desc"),
+          limit(150),
         );
 
     const unsubOrders = onSnapshot(
@@ -3578,7 +3742,7 @@ export default function App() {
     let unsubUsers: (() => void) | undefined;
     if (isAdminView) {
       unsubUsers = onSnapshot(
-        collection(db, "users"),
+        query(collection(db, "users"), limit(150)),
         (snapshot) => {
           if (initialUsersLoaded) {
             snapshot.docChanges().forEach((change) => {
@@ -3612,11 +3776,13 @@ export default function App() {
           collection(db, "notifications"),
           where("userId", "in", [user.uid, "admin"]),
           orderBy("timestamp", "desc"),
+          limit(100),
         )
       : query(
           collection(db, "notifications"),
           where("userId", "==", user.uid),
           orderBy("timestamp", "desc"),
+          limit(100),
         );
 
     const unsubNotifications = onSnapshot(
@@ -4880,6 +5046,74 @@ export default function App() {
     }
   };
 
+  // Call Engine Helper Methods
+  const initiateCall = async (type: "voice" | "video") => {
+    try {
+      const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+      const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
+      if (!targetId) {
+        addToast("সক্রিয় চ্যাটরুম বা মেসেজ রিকুয়েস্ট সিলেক্ট করা নেই!", "error");
+        return;
+      }
+
+      setLocalMute(false);
+      setLocalVideoOff(false);
+      setCallDuration(0);
+
+      const currentId = user?.uid || guestSession?.uid;
+      const callerName = isRep 
+        ? (profile?.name || "সাপোর্ট প্রতিনিধি") 
+        : (user?.displayName || guestSession?.name || "কাস্টমার");
+
+      await updateDoc(doc(db, "support_rooms", targetId), {
+        callState: {
+          callerUid: currentId || "unknown",
+          callerName: callerName,
+          callType: type,
+          callStatus: "ringing",
+          timestamp: Date.now()
+        }
+      });
+      addToast(type === "voice" ? "ভয়েস কল ডায়াল করা হচ্ছে..." : "ভিডিও কল ডায়াল করা হচ্ছে...", "success");
+    } catch (err) {
+      console.error("Calling initiation failed:", err);
+      addToast("কল সার্ভিস চালু করা সম্ভব হয়নি।", "error");
+    }
+  };
+
+  const acceptCall = async () => {
+    try {
+      const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+      const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
+      if (!targetId) return;
+
+      await updateDoc(doc(db, "support_rooms", targetId), {
+        "callState.callStatus": "connected",
+        "callState.connectedAt": Date.now()
+      });
+      addToast("কল রিসিভ করা হয়েছে!", "success");
+    } catch (err) {
+      console.error("Call accepting failed:", err);
+    }
+  };
+
+  const declineOrEndCall = async () => {
+    try {
+      const isRep = profile?.role === "admin" || profile?.role === "staff" || isSecureAdminState;
+      const targetId = isRep ? activeSupportRoomId : (user?.uid || guestSession?.uid);
+      if (!targetId) return;
+
+      await updateDoc(doc(db, "support_rooms", targetId), {
+        callState: null
+      });
+      stopRingtone();
+      addToast("কল সমাপ্ত করা হয়েছে।", "success");
+    } catch (err) {
+      console.error("Call disconnect failed:", err);
+      addToast("কল ডিসকানেক্ট করতে ব্যর্থ হয়েছে।", "error");
+    }
+  };
+
   // Customer Support Live Chat Actions
   const startGuestSupportChat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4926,11 +5160,18 @@ export default function App() {
     }
   };
 
-  const sendCustomerSupportMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = customerChatMessage.trim();
+  const sendCustomerSupportMessage = async (eOrText: React.FormEvent | string) => {
+    let text = "";
+    if (typeof eOrText === "string") {
+      text = eOrText.trim();
+    } else {
+      if (eOrText && typeof eOrText.preventDefault === "function") {
+        eOrText.preventDefault();
+      }
+      text = customerChatMessage.trim();
+      setCustomerChatMessage("");
+    }
     if (!text) return;
-    setCustomerChatMessage("");
     
     let currentId = user?.uid || guestSession?.uid;
     let name = user?.displayName || guestSession?.name || "কাস্টমার";
@@ -4967,11 +5208,18 @@ export default function App() {
     }
   };
 
-  const sendRepresentativeReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = adminChatMessage.trim();
+  const sendRepresentativeReply = async (eOrText: React.FormEvent | string) => {
+    let text = "";
+    if (typeof eOrText === "string") {
+      text = eOrText.trim();
+    } else {
+      if (eOrText && typeof eOrText.preventDefault === "function") {
+        eOrText.preventDefault();
+      }
+      text = adminChatMessage.trim();
+      setAdminChatMessage("");
+    }
     if (!text || !activeSupportRoomId) return;
-    setAdminChatMessage("");
     
     let senderName = profile?.fullName || profile?.name || user?.displayName || "প্রতিনিধি";
     let senderRole = "admin";
@@ -5155,7 +5403,23 @@ export default function App() {
                       </div>
                     </div>
                     
-                    <div className="flex gap-2 flex-wrap justify-end">
+                    <div className="flex gap-2 flex-wrap justify-end items-center">
+                      <button
+                        type="button"
+                        onClick={() => initiateCall("voice")}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm hover:scale-105"
+                        title="কাস্টমারকে ভয়েস কল দিন"
+                      >
+                        <Phone size={11} strokeWidth={3} /> ভয়েস কল
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => initiateCall("video")}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm hover:scale-105 animate-pulse"
+                        title="কাস্টমারকে ভিডিও কল দিন"
+                      >
+                        <Video size={11} strokeWidth={3} /> ভিডিও কল
+                      </button>
                       <button
                         onClick={() => {
                           const isSpamNow = !(activeRoom?.isSpam || activeRoom?.isBlocked || activeRoom?.status === "spam");
@@ -5283,11 +5547,21 @@ export default function App() {
                   </div>
                   
                   {/* Input Form typing bar */}
-                  <form onSubmit={sendRepresentativeReply} className="p-4 border-t border-gray-150 dark:border-white/5 flex gap-2 bg-slate-50/50 dark:bg-[#0f172a]/60 shrink-0">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const input = form.elements.namedItem("representativeMsg") as HTMLInputElement;
+                      if (input && input.value.trim()) {
+                        sendRepresentativeReply(input.value);
+                        input.value = "";
+                      }
+                    }}
+                    className="p-4 border-t border-gray-150 dark:border-white/5 flex gap-2 bg-slate-50/50 dark:bg-[#0f172a]/60 shrink-0"
+                  >
                     <input
                       type="text"
-                      value={adminChatMessage}
-                      onChange={(e) => setAdminChatMessage(e.target.value)}
+                      name="representativeMsg"
                       placeholder="এখানে কাস্টমারের জন্য বার্তা টাইপ করুন..."
                       className="flex-1 px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-gray-800 dark:text-white"
                     />
@@ -6002,6 +6276,170 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* Real-time Voice & Video Calling Overlay Panel */}
+      <AnimatePresence>
+        {activeCallingRoom?.callState && (
+          <div className="fixed inset-0 z-[60000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-2xl">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 40 }}
+              transition={{ type: "spring", damping: 22, stiffness: 280 }}
+              className="bg-[#0b0f19] text-white rounded-[2.5rem] border border-white/10 shadow-[0_0_50px_rgba(99,102,241,0.25)] overflow-hidden w-full max-w-sm p-6 relative flex flex-col items-center text-center justify-between min-h-[480px]"
+            >
+              {/* Animated pulses backgrounds */}
+              <div className="absolute inset-0 pointer-events-none opacity-20 bg-gradient-to-b from-indigo-500/20 via-transparent to-red-500/10" />
+
+              {/* Header Indicator */}
+              <div className="w-full flex justify-between items-center z-10">
+                <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-widest text-indigo-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                  {activeCallingRoom.callState.callType === "voice" ? "VOICE CALL" : "VIDEO CALL"}
+                </span>
+                <span className="text-[10px] text-gray-500 font-bold font-sans">
+                  TimeMate BD Calling Portal
+                </span>
+              </div>
+
+              {/* Audio/Video display Area */}
+              <div className="my-8 flex flex-col items-center relative z-10 w-full">
+                {/* Caller Avatar / Camera View */}
+                <div className="relative w-28 h-28 flex items-center justify-center mb-6">
+                  {/* Ping Circles represent calling */}
+                  {activeCallingRoom.callState.callStatus === "ringing" && (
+                    <>
+                      <div className="absolute inset-0 rounded-full border-2 border-indigo-500/30 animate-ping duration-1000 scale-110" />
+                      <div className="absolute inset-0 rounded-full border border-rose-500/20 animate-ping duration-1000 delay-300 scale-125" />
+                    </>
+                  )}
+
+                  <div className={`w-full h-full rounded-full bg-gradient-to-br from-indigo-500 via-purple-600 to-rose-500 p-1 flex items-center justify-center shadow-2xl relative overflow-hidden transition-all ${localVideoOff && activeCallingRoom.callState.callStatus === "connected" ? "opacity-60" : "scale-105"}`}>
+                    {activeCallingRoom.callState.callType === "video" && activeCallingRoom.callState.callStatus === "connected" && !localVideoOff ? (
+                      /* Live Camera Preview mock feed with shifting matrix pattern */
+                      <div className="absolute inset-0 w-full h-full bg-slate-900 flex flex-col items-center justify-center">
+                        <div className="absolute inset-0 opacity-40 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%]" />
+                        <motion.div 
+                          animate={{ scale: [1, 1.05, 1] }} 
+                          transition={{ repeat: Infinity, duration: 3 }} 
+                          className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center"
+                        >
+                          <Video size={16} className="text-indigo-400" />
+                        </motion.div>
+                        <span className="absolute bottom-1 right-2 text-[6px] font-black uppercase text-indigo-300 bg-black/60 px-1 rounded">LIVE FEED</span>
+                      </div>
+                    ) : (
+                      /* Standard Avatar Initial letter */
+                      <span className="text-4xl font-extrabold text-white uppercase drop-shadow font-sans">
+                        {activeCallingRoom.callState.callerName?.[0] || "S"}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Secondary floating Avatar representing the other side of call */}
+                  <div className="absolute -bottom-2 -right-2 w-10 h-10 rounded-full bg-[#1e293b] border-2 border-white/10 flex items-center justify-center shadow-lg overflow-hidden shrink-0">
+                    <span className="text-xs font-black text-gray-400 uppercase">
+                      {activeCallingRoom?.customerName?.[0] || "C"}
+                    </span>
+                  </div>
+                </div>
+
+                <h3 className="text-lg font-black tracking-tight text-white font-sans">
+                  {activeCallingRoom.callState.callerName}
+                </h3>
+
+                {/* Status or duration stopwatch element */}
+                <div className="mt-3">
+                  {activeCallingRoom.callState.callStatus === "ringing" ? (
+                    <motion.p
+                      animate={{ opacity: [1, 0.5, 1] }}
+                      transition={{ repeat: Infinity, duration: 1.5 }}
+                      className="text-xs text-amber-400 font-extrabold tracking-widest uppercase"
+                    >
+                      {activeCallingRoom.callState.callerUid === (user?.uid || guestSession?.uid) 
+                        ? "কল ডায়াল করা হচ্ছে..." 
+                        : "ইনকামিং কল আসছে..."}
+                    </motion.p>
+                  ) : activeCallingRoom.callState.callStatus === "connected" ? (
+                    <div className="flex flex-col items-center">
+                      <span className="text-2xl font-black font-mono tracking-wider text-emerald-400 drop-shadow-sm animate-pulse-subtle">
+                        {(() => {
+                          const sec = callDuration;
+                          const m = Math.floor(sec / 60).toString().padStart(2, '0');
+                          const s = (sec % 60).toString().padStart(2, '0');
+                          return `${m}:${s}`;
+                        })()}
+                      </span>
+                      <p className="text-[9px] text-emerald-500/80 font-black tracking-widest uppercase mt-1">CONNECTED</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-red-500 font-extrabold font-sans">DISCONNECTED</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Call Controls & Action Row */}
+              <div className="w-full relative z-10 mt-6 pt-6 border-t border-white/5 flex flex-col gap-4">
+                {activeCallingRoom.callState.callStatus === "connected" && (
+                  /* Audio Toggle Actions during active Call */
+                  <div className="flex justify-center gap-6 items-center">
+                    <button
+                      type="button"
+                      onClick={() => setLocalMute(!localMute)}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localMute ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      title={localMute ? "মাইক্রোফোন আনমিউট করুন" : "মাইক্রোফোন মিউট করুন"}
+                    >
+                      {localMute ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLocalVideoOff(!localVideoOff)}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localVideoOff ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      title={localVideoOff ? "ক্যামেরা অন করুন" : "ক্যামেরা অফ করুন"}
+                    >
+                      {localVideoOff ? <VideoOff size={16} /> : <Video size={16} />}
+                    </button>
+                  </div>
+                )}
+
+                {/* Main Accept/Decline/Cancel Button Grid */}
+                <div className="flex justify-center gap-4 w-full">
+                  {/* Incoming Call Accept triggers (Only if current user is the Receiver) */}
+                  {activeCallingRoom.callState.callStatus === "ringing" && 
+                   activeCallingRoom.callState.callerUid !== (user?.uid || guestSession?.uid) ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={declineOrEndCall}
+                        className="flex-1 py-3 px-4 bg-red-650 hover:bg-red-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md border-0"
+                      >
+                        <PhoneOff size={12} strokeWidth={2.5} /> কেটে দিন
+                      </button>
+                      <button
+                        type="button"
+                        onClick={acceptCall}
+                        className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 shadow-md border-0 animate-bounce"
+                      >
+                        <Phone size={12} strokeWidth={2.5} /> রিসিভ করুন
+                      </button>
+                    </>
+                  ) : (
+                    /* Caller sees "End/Cancel Call" / Connected parties see "End Call" */
+                    <button
+                      type="button"
+                      onClick={declineOrEndCall}
+                      className="w-full py-3.5 px-4 bg-rose-650 hover:bg-rose-700 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 shadow-lg border-0"
+                    >
+                      <PhoneOff size={12} strokeWidth={2.5} /> {activeCallingRoom.callState.callStatus === "ringing" ? "কল কেটে দিন" : "কল শেষ করুন"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Selected User Location Digital Map Modal */}
       <AnimatePresence>
         {selectedUserLocation && (
@@ -6109,9 +6547,14 @@ export default function App() {
                   লাইভ রিপোর্টেড অবস্থান (Convert Coordinates to Place Name):
                 </div>
                 <div className="bg-slate-100/40 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5">
-                  <p className="text-xs font-bold text-gray-800 dark:text-gray-200 leading-relaxed">
+                  <p className="text-xs font-bold text-gray-800 dark:text-gray-200 leading-relaxed font-sans">
                     📍 {selectedUserLocation.location?.address || "অবস্থান নাম অনুবাদ করা হচ্ছে..."}
                   </p>
+                  {selectedUserLocation.houseNumber && (
+                    <p className="text-xs font-black text-indigo-650 dark:text-indigo-400 leading-relaxed mt-2.5 flex items-center gap-1.5 font-sans bg-indigo-50/50 dark:bg-indigo-950/15 p-2 rounded-xl border border-indigo-100/20">
+                      🏢 বাসা / হোল্ডিং নম্বর: {selectedUserLocation.houseNumber}
+                    </p>
+                  )}
                   <p className="text-[10px] text-gray-400 font-mono mt-2">
                     অক্ষাংশ (Lat): {selectedUserLocation.location?.lat || "N/A"} | দ্রাঘিমাংশ (Lng): {selectedUserLocation.location?.lng || "N/A"}
                   </p>
@@ -7104,7 +7547,11 @@ export default function App() {
                             notifications.map((n) => (
                               <div
                                 key={n.id}
-                                className={`p-4 border-b border-gray-50 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-all flex justify-between items-start gap-2 relative ${!n.read ? "bg-indigo-50/50 dark:bg-indigo-500/5" : ""}`}
+                                className={`p-4 border-b border-gray-150/50 dark:border-white/10 hover:bg-gray-100/70 dark:hover:bg-white/10 transition-all flex justify-between items-start gap-4 relative ${
+                                  !n.read 
+                                    ? "bg-indigo-50/90 dark:bg-indigo-950/55 border-l-4 border-indigo-600 dark:border-indigo-400 shadow-[inset_0_1px_4px_rgba(99,102,241,0.08)]" 
+                                    : "bg-white dark:bg-transparent opacity-70"
+                                }`}
                               >
                                 <div
                                   className="flex-1 cursor-pointer"
@@ -7237,17 +7684,25 @@ export default function App() {
                                     }
                                   }}
                                 >
-                                  <p className="text-xs font-black text-indigo-600 dark:text-indigo-400 mb-0.5 flex items-center gap-1">
-                                    {!n.read && (
-                                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                                  <p className={`text-xs mb-0.5 flex items-center gap-1.5 ${!n.read ? "text-indigo-700 dark:text-indigo-300 font-black" : "text-gray-500 dark:text-gray-500 font-bold"}`}>
+                                    {!n.read ? (
+                                      <span className="flex h-2 w-2 relative shrink-0">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                                      </span>
+                                    ) : (
+                                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-700 shrink-0" />
                                     )}
-                                    {n.title}
+                                    <span>{n.title}</span>
+                                    {!n.read && (
+                                      <span className="bg-rose-500 text-white text-[7px] font-black tracking-wider px-1 py-0.2 rounded-md uppercase shrink-0 animate-pulse font-sans">নতুন</span>
+                                    )}
                                   </p>
-                                  <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed font-bold">
+                                  <p className={`text-[11px] leading-relaxed transition-all ${!n.read ? "text-slate-900 dark:text-slate-100 font-black" : "text-gray-500 dark:text-gray-400 font-bold"}`}>
                                     {n.message}
                                   </p>
-                                  <p className="text-[9px] text-gray-400 mt-2 font-semibold">
-                                    {new Date(n.timestamp).toLocaleString()}
+                                  <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-2 font-black flex items-center gap-1">
+                                    <span>🕒</span> {new Date(n.timestamp).toLocaleString()}
                                   </p>
                                 </div>
                                 {!n.read && (
@@ -7258,7 +7713,7 @@ export default function App() {
                                       markNotificationRead(n.id);
                                       addToast("নোটিফিকেশন পঠিত করা হয়েছে");
                                     }}
-                                    className="p-1 px-1.5 text-[8px] font-black uppercase text-gray-400 hover:text-emerald-500 hover:bg-emerald-500/10 rounded-lg shrink-0 mt-1 transition-colors border border-transparent hover:border-emerald-500/10"
+                                    className="p-1.5 px-2.5 text-[9px] font-black uppercase text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl shrink-0 mt-1 transition-all border border-emerald-505/20 hover:scale-105 active:scale-95 cursor-pointer"
                                   >
                                     পঠিত
                                   </button>
@@ -7402,17 +7857,22 @@ export default function App() {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="bg-gradient-to-r from-amber-600 via-orange-600 to-indigo-700 text-white overflow-hidden shadow-lg border-b border-amber-500/20 sticky top-[61px] z-[49] font-sans"
+              className="bg-gradient-to-r from-red-600 via-amber-600 to-orange-700 text-white overflow-hidden shadow-2xl border-b-2 border-red-550/30 sticky top-[61px] z-[49] font-sans animate-pulse"
             >
-              <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-center gap-2 text-center text-[10px] sm:text-xs font-black tracking-wide leading-relaxed">
-                <span className="flex h-2.5 w-2.5 relative shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-                </span>
+              <div className="max-w-7xl mx-auto px-4 py-3.5 flex flex-col sm:flex-row items-center justify-center gap-2 text-center text-xs sm:text-sm font-black tracking-wide leading-relaxed">
+                <div className="flex items-center gap-2 justify-center">
+                  <span className="flex h-3 w-3 relative shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-90" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400" />
+                  </span>
+                  <span className="text-yellow-300 uppercase tracking-widest text-[11px] font-extrabold animate-bounce">
+                    🚨 অফলাইন সংকেত (OFFLINE ALERT)
+                  </span>
+                </div>
                 <span>
                   {trans(
-                    "⚠️ ইন্টারনেট কানেকশন নেই! টাইমমেট বিডি অফলাইনে চলছে। আপনার সমস্ত বুকিং ও কার্যক্রম লোকাল মেমোরিতে নিরাপদে জমা রয়েছে এবং অফলাইন ও অনলাইন সচল হলেই স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।",
-                    "⚠️ Offline Mode: Internet disconnected. TimeMate BD is storing all bookings, coupons and requests on your offline storage local cache successfully and will auto-sync on reconnect!"
+                    "• ইন্টারনেট কানেকশন অফলাইন! দয়া করে আপনার মোবাইল ডাটা বা ওয়াইফাই অন করুন। টাইমমেট বিডি অফলাইনে চালু রয়েছে, আপনার বুকিং ডাটা লোকাল মেমরিতে নিরাপদে জমা হবে এবং নেট পেলেই সিঙ্ক হবে।",
+                    "• Internet Connection Offline! Please turn on your mobile data or Wi-Fi. TimeMate BD is serving offline, your bookings are saved locally and will auto-sync on reconnect!"
                   )}
                 </span>
               </div>
@@ -8178,10 +8638,10 @@ export default function App() {
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={currentReviewIndex}
-                      initial={{ opacity: 0, x: 20, scale: 0.99 }}
-                      animate={{ opacity: 1, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: -20, scale: 0.99 }}
-                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      transition={{ duration: 0.12, ease: "easeOut" }}
                       className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-gray-100 dark:border-white/5"
                     >
                       <div className="flex items-center gap-4 mb-6">
@@ -9767,6 +10227,7 @@ export default function App() {
                        name: formData.get("name") as string,
                        phone: formData.get("phone") as string,
                        address: formData.get("address") as string,
+                       houseNumber: (formData.get("houseNumber") as string || "").trim(),
                        birthDate: formData.get("birthDate") as string,
                        customBadge: formData.get("customBadge") as string,
                      };
@@ -9829,16 +10290,29 @@ export default function App() {
                        />
                      </div>
                    </div>
-                   <div className="space-y-2">
-                     <label className="text-[10px] font-black text-gray-400 dark:text-indigo-200 uppercase tracking-widest ml-1">
-                       ঠিকানা (ডিফল্ট)
-                     </label>
-                     <textarea
-                      name="address"
-                      defaultValue={profile?.address}
-                      placeholder="আপনার ঠিকানা"
-                      className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] dark:bg-slate-900/40 border border-transparent focus:border-indigo-500 dark:focus:border-indigo-500 outline-none transition-all font-bold min-h-[80px] text-[#0f172a] dark:text-white"
-                     />
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black text-gray-400 dark:text-indigo-200 uppercase tracking-widest ml-1">
+                         বাসা নম্বর / ফ্ল্যাট / হোল্ডিং নম্বর 🏠
+                       </label>
+                       <input
+                         name="houseNumber"
+                         defaultValue={profile?.houseNumber || ""}
+                         placeholder="যেমন: বাসা-১২, ফ্ল্যাট- ৩বি, রোড- ৭"
+                         className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] dark:bg-slate-900/40 border border-transparent focus:border-indigo-500 dark:focus:border-indigo-500 outline-none transition-all font-bold text-[#0f172a] dark:text-white"
+                       />
+                     </div>
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black text-gray-400 dark:text-indigo-200 uppercase tracking-widest ml-1">
+                         ঠিকানা (ডিফল্ট)
+                       </label>
+                       <textarea
+                         name="address"
+                         defaultValue={profile?.address}
+                         placeholder="আপনার বিস্তারিত ঠিকানা"
+                         className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] dark:bg-slate-900/40 border border-transparent focus:border-indigo-500 dark:focus:border-indigo-500 outline-none transition-all font-bold min-h-[58px] text-[#0f172a] dark:text-white resize-none"
+                       />
+                     </div>
                    </div>
                    <button
                      type="submit"
@@ -11697,6 +12171,20 @@ export default function App() {
                                 ↳ {o.subservice}
                               </p>
                             )}
+                            {o.note && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2.5 rounded-xl border border-amber-550/20 italic mt-2">
+                                📌 বিশেষ নির্দেশনা: "{o.note}"
+                              </p>
+                            )}
+                            {o.type === "Courier" && (
+                              <div className="mt-2 p-2.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-[9px] space-y-0.5">
+                                <p className="text-indigo-600 dark:text-indigo-300 font-black">📦 কুরিয়ার পার্সেল তথ্য:</p>
+                                <p>• প্রকার: <span className="font-extrabold">{o.pType || "সাধারণ"}</span></p>
+                                <p>• ওজন: <span className="font-extrabold">{o.weight || "N/A"}</span></p>
+                                <p>• গতি: <span className="font-extrabold">{o.deliveryType || "Regular"}</span></p>
+                                <p className="text-gray-400">📍 {o.fromZone} ➔ {o.toZone}</p>
+                              </div>
+                            )}
                           </div>
 
                           {/* Status and Assignment Form Controls */}
@@ -12391,7 +12879,7 @@ export default function App() {
               {adminTab === "orders" && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input
+                    <BufferedInput
                       placeholder="অর্ডার আইডি বা নাম দিয়ে সার্চ..."
                       value={adminSearch}
                       onChange={(e) => setAdminSearch(e.target.value)}
@@ -12481,11 +12969,27 @@ export default function App() {
                                  )}
                                </td>
                                <td className="px-3 py-3 text-xs font-semibold text-gray-700 dark:text-gray-300">
-                                 <p className="truncate max-w-[110px]" title={o.service}>{o.service}</p>
+                                 <p className="truncate max-w-[110px] font-black" title={o.service}>{o.service}</p>
                                  {o.subservice && (
                                    <p className="text-[10px] text-indigo-500 font-bold truncate max-w-[110px]" title={o.subservice}>
-                                     {o.subservice}
+                                     ↳ {o.subservice}
                                    </p>
+                                 )}
+                                 {/* Display the Order note/details to the admin in the table row */}
+                                 {o.note && (
+                                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2 px-2.5 rounded-xl border border-amber-500/20 italic mt-2 whitespace-pre-wrap max-w-[180px]" title={o.note}>
+                                     📌 বিশেষ নির্দেশনা: "{o.note}"
+                                   </p>
+                                 )}
+                                 {/* Courier-specific details display for Full Control */}
+                                 {o.type === "Courier" && (
+                                   <div className="mt-1.5 p-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-[9px] space-y-0.5 max-w-[180px]">
+                                     <p className="text-indigo-600 dark:text-indigo-300 font-black">📦 কুরিয়ার পার্সেল তথ্য:</p>
+                                     <p>• প্রকার: <span className="font-extrabold">{o.pType || "সাধারণ"}</span></p>
+                                     <p>• ওজন: <span className="font-extrabold">{o.weight || "N/A"}</span></p>
+                                     <p>• গতি: <span className="font-extrabold">{o.deliveryType || "Regular"}</span></p>
+                                     <p className="truncate text-gray-400">📍 {o.fromZone} ➔ {o.toZone}</p>
+                                   </div>
                                  )}
                                </td>
                                <td className="px-3 py-3">
@@ -12826,6 +13330,20 @@ export default function App() {
                               <p className="text-[10px] text-indigo-500 font-black mt-0.5">
                                 ↳ {o.subservice}
                               </p>
+                            )}
+                            {o.note && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2.5 rounded-xl border border-amber-550/20 italic mt-2">
+                                📌 বিশেষ নির্দেশনা: "{o.note}"
+                              </p>
+                            )}
+                            {o.type === "Courier" && (
+                              <div className="mt-2 p-2.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl text-[9px] space-y-0.5">
+                                <p className="text-indigo-600 dark:text-indigo-300 font-black">📦 কুরিয়ার পার্সেল তথ্য:</p>
+                                <p>• প্রকার: <span className="font-extrabold">{o.pType || "সাধারণ"}</span></p>
+                                <p>• ওজন: <span className="font-extrabold">{o.weight || "N/A"}</span></p>
+                                <p>• গতি: <span className="font-extrabold">{o.deliveryType || "Regular"}</span></p>
+                                <p className="text-gray-400">📍 {o.fromZone} ➔ {o.toZone}</p>
+                              </div>
                             )}
                           </div>
 
@@ -15748,14 +16266,18 @@ export default function App() {
                             addToast("অ্যাকাউন্ট তৈরি হচ্ছে...");
                             const customEmployeeId = (formData.get("customEmployeeId") as string || "").trim();
 
-                            const secondaryApp = initializeApp(firebaseConfig, "SecondaryAppGenerator-" + Date.now());
-                            const secondaryAuth = getAuth(secondaryApp);
-                            
-                            // Prevent cookie/local persistence mismatch by setting to in-memory persistence
-                            await setPersistence(secondaryAuth, inMemoryPersistence);
-                            
-                            const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-                            const newUid = userCredential.user.uid;
+                            const restRes = await fetch("/api/create-account", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email, password })
+                            });
+
+                            if (!restRes.ok) {
+                              const errResponse = await restRes.json();
+                              throw new Error(errResponse.error || "Firestore authentication registration failed.");
+                            }
+
+                            const { uid: newUid } = await restRes.json();
 
                             const finalRole = roleType === "staff" ? "staff" : "employee";
                             const finalSector = roleType === "rider" ? "Rider" : roleType === "worker" ? "Worker" : "";
@@ -15788,13 +16310,6 @@ export default function App() {
                                 timestamp: new Date().toISOString(),
                                 generatedPassword: password
                               });
-                            }
-
-                            // Finally, safe cleanup of the secondary client memory
-                            try {
-                              await deleteApp(secondaryApp);
-                            } catch (cleanUpErr) {
-                              console.error("Cleanup secondaryApp failed non-blockingly:", cleanUpErr);
                             }
 
                             addToast("অ্যাকাউন্ট সফলভাবে জেনারেট সম্পন্ন হয়েছে! 🔑", "success");
@@ -16110,11 +16625,16 @@ export default function App() {
                                         <p className="font-extrabold text-xs text-gray-900 dark:text-white font-sans">
                                           {u.fullName || u.name}
                                         </p>
-                                        <span
-                                          className={`inline-block px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${u.role === "staff" ? "bg-amber-500/10 text-amber-600" : isRider ? "bg-teal-500/10 text-teal-600 dark:text-teal-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"}`}
-                                        >
-                                          {u.role === "staff" ? "Staff (সীমিত এক্সেস)" : isRider ? " কুরিয়ার রাইডার" : " সার্ভিস কর্মী"}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span
+                                            className={`inline-block px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider ${u.role === "staff" ? "bg-amber-500/10 text-amber-600" : isRider ? "bg-teal-500/10 text-teal-600 dark:text-teal-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"}`}
+                                          >
+                                            {u.role === "staff" ? "Staff (সীমিত এক্সেস)" : isRider ? " কুরিয়ার রাইডার" : " সার্ভিস কর্মী"}
+                                          </span>
+                                          <span className="inline-block text-[8px] font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-white/5 px-1.5 py-0.5 rounded font-black">
+                                            ID: {u.uid}
+                                          </span>
+                                        </div>
                                       </div>
                                     </td>
                                     <td className="py-4 px-3 text-xs font-semibold font-mono text-gray-900 dark:text-gray-200">
@@ -18943,11 +19463,7 @@ export default function App() {
             <div
               className="fixed inset-0 z-[1002] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md"
               onClick={() => {
-                const isAdminUnverified =
-                  profile?.role === "admin" && !profile?.mobileVerified;
-                if (!isAdminUnverified) {
-                  setVerificationModal(null);
-                }
+                setVerificationModal(null);
               }}
             >
               <motion.div
@@ -18957,14 +19473,12 @@ export default function App() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-gray-150 dark:border-white/5 p-8 w-full max-w-md shadow-2xl relative"
               >
-                {!(profile?.role === "admin" && !profile?.mobileVerified) && (
-                  <button
-                    onClick={() => setVerificationModal(null)}
-                    className="absolute right-6 top-6 p-2 bg-gray-50 dark:bg-white/5 text-gray-400 hover:text-gray-950 dark:hover:text-white rounded-xl transition-all pointer-events-auto"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
+                <button
+                  onClick={() => setVerificationModal(null)}
+                  className="absolute right-6 top-6 p-2 bg-gray-50 dark:bg-white/5 text-gray-400 hover:text-gray-950 dark:hover:text-white rounded-xl transition-all pointer-events-auto"
+                >
+                  <X size={18} />
+                </button>
 
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 bg-indigo-500/10 text-indigo-500 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4">
@@ -19015,9 +19529,15 @@ export default function App() {
                         </span>{" "}
                         নম্বরে একটি ৬ ডিজিটের ভেরিফিকেশন ওটিপি কোড পাঠানো হয়েছে।
                       </p>
-                      <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl font-bold font-mono text-center text-xs">
-                        🔑 ডেমো ওটিপি কোড: {verificationModal.otpCode}
-                      </div>
+                      {verificationModal.otpCode ? (
+                        <div className="p-3 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl font-bold font-mono text-center text-xs">
+                          🔑 ডেমো ওটিপি কোড: {verificationModal.otpCode}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold font-sans text-center text-[10px]">
+                          📢 আপনার সিকিউর মোবাইল নম্বরে ওটিপি কোড পাঠানো হয়েছে। কোড আসতে দেরি হলে ইমেইল ভেরিফিকেশন ট্রাই করুন।
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -19340,10 +19860,10 @@ export default function App() {
         <AnimatePresence>
           {isSupportWidgetOpen && (
             <motion.div
-              initial={{ opacity: 0, y: 30, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 30, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+              transition={{ duration: 0.12, ease: "easeOut" }}
               className="w-[290px] sm:w-[335px] h-[430px] max-h-[70vh] bg-white dark:bg-[#111827] border border-gray-150 dark:border-white/10 rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col relative"
             >
               {/* Header */}
@@ -19366,12 +19886,34 @@ export default function App() {
                     <p className="text-[9px] text-white/80 font-bold">অনলাইন প্রতিনিধির সাথে সরাসরি চ্যাট</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsSupportWidgetOpen(false)}
-                  className="p-1 bg-white/10 hover:bg-white/25 rounded-md text-xs font-bold transition-all cursor-pointer"
-                >
-                  <X size={12} />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(user?.uid || guestSession?.uid) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => initiateCall("voice")}
+                        className="p-1.5 bg-indigo-500/30 hover:bg-indigo-500/60 text-white rounded-lg transition-all cursor-pointer flex items-center justify-center hover:scale-105"
+                        title="ভয়েস কল দিন"
+                      >
+                        <Phone size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => initiateCall("video")}
+                        className="p-1.5 bg-rose-500/30 hover:bg-rose-500/60 text-white rounded-lg transition-all cursor-pointer flex items-center justify-center hover:scale-105"
+                        title="ভিডিও কল দিন"
+                      >
+                        <Video size={11} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setIsSupportWidgetOpen(false)}
+                    className="p-1.5 bg-white/10 hover:bg-white/25 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
               </div>
 
               {/* Chat Panel Thread Body */}
@@ -19491,12 +20033,22 @@ export default function App() {
 
               {/* Chat Input typed bar inside panel */}
               {(user?.uid || guestSession?.uid) && (
-                <form onSubmit={sendCustomerSupportMessage} className="p-3 bg-white dark:bg-slate-900 border-t border-gray-150 dark:border-white/5 flex gap-1.5 shrink-0">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.currentTarget;
+                    const input = form.elements.namedItem("customerMsg") as HTMLInputElement;
+                    if (input && input.value.trim()) {
+                      sendCustomerSupportMessage(input.value);
+                      input.value = "";
+                    }
+                  }}
+                  className="p-3 bg-white dark:bg-slate-900 border-t border-gray-150 dark:border-white/5 flex gap-1.5 shrink-0"
+                >
                   <input
                     type="text"
+                    name="customerMsg"
                     required
-                    value={customerChatMessage}
-                    onChange={(e) => setCustomerChatMessage(e.target.value)}
                     placeholder="আপনার বার্তাটি এখানে লিখুন..."
                     className="flex-1 px-3 py-2 bg-gray-50 dark:bg-slate-950 border border-gray-150 dark:border-white/10 text-[11px] rounded-lg font-bold text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
                   />
