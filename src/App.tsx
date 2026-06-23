@@ -93,6 +93,7 @@ import {
   Lock,
   Unlock,
   Sliders,
+  Volume2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { APIProvider, Map, AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
@@ -139,6 +140,7 @@ import { SecurityHub } from "./components/SecurityHub";
 import { CoinEconomy } from "./components/CoinEconomy";
 import { OperationsControl } from "./components/OperationsControl";
 import { AdminAnalyticsPanel, AdminRemindersPanel } from "./components/AdminAnalyticsAndReminders";
+import { AICopilot } from "./components/AICopilot";
 import { 
   playTickSound, 
   playSuccessChime, 
@@ -969,6 +971,44 @@ export default function App() {
         "পেমেন্ট রিসিট": "Payment Receipt",
         "আপনার সময়ের সেরা সঙ্গী": "Your Best Time Mate Always",
         "প্রোফাইল সেটিংস": "Profile Settings",
+        "সুবীর দাশ এইমাত্র ঢাকা জুরে এক্সপ্রেস কুরিয়ার বুক করেছেন (৩ মিনিট আগে) 📦": "Subir Das just booked Dhaka City Express Courier (3 mins ago) 📦",
+        "এনামুল হোসেন এইমাত্র টিকেট বুকিং সার্ভিস সফলভাবে বুক করেছেন (২ মিনিট আগে) 🎫": "Enamul Hossain just booked Ticket Booking Service (2 mins ago) 🎫",
+        "নিশাত তাসনিম এইমাত্র বাজার ও গ্রোসারি সার্ভিস বুক করেছেন (৫ মিনিট আগে) 🛒": "Nishat Tasnim just booked Grocery Shopping Service (5 mins ago) 🛒",
+        "আসিফ আহমেদ এইমাত্র একটি রিমাইন্ডার সার্ভিস সেট করেছেন (১ মিনিট আগে) ⏰": "Asif Ahmed just set a Reminder Service (1 min ago) ⏰",
+        "রাইহান উদ্দিন এইমাত্র এক্সপার্ট ইলেকট্রিশিয়ান সার্ভিস বুক করেছেন (৪ মিনিট আগে) ⚡": "Raihan Uddin just booked Expert Electrician Service (4 mins ago) ⚡",
+        "নতুন": "New",
+        "মূল্য নির্ধারণ": "Price Setting",
+        "পেমেন্ট যাচাই": "Verifying Payment",
+        "প্রক্রিয়াধীন": "In Processing",
+        "সম্পন্ন": "Completed",
+        "বাতিল": "Cancelled",
+        "রেগুলার": "Regular",
+        "এক্সপ্রেস": "Express",
+        "ভিআইপি গোল্ডেন এক্সপ্রেস": "VIP Golden Express",
+        "কুরিয়ার চার্জ": "Courier Charge",
+        "কোথা থেকে": "From Zone",
+        "কোথায়": "To Zone",
+        "ओজন (Weight)": "Weight",
+        "পার্সেল টাইপ": "Parcel Type",
+        "ডেলিভারি ধরন": "Delivery Mode",
+        "ডেলিভারি এবং পার্সেল সেটিংস": "DELIVERY & PARCEL SETTINGS",
+        "প্রেরক সংক্রান্ত তথ্য (SENDER INFO)": "SENDER INFO",
+        "প্রাপক সংক্রান্ত তথ্য (RECIPIENT INFO)": "RECIPIENT INFO",
+        "বুকিং সুরক্ষিত করুন — Confirm & Relax 🛡️": "Confirm & Relax — Secure My Booking 🛡️",
+        "ভিআইপি গোল্ডেন এক্সপ্রেস কুরিয়ার": "VIP Golden Express Courier",
+        "কুরিয়ার ও পার্সেল বুকিং": "Courier & Parcel Booking",
+        "দ্রুত ও নিরাপদ ক্যাশ-অন-ডেলিভারি পার্সেল সার্ভিস": "Fast and secure cash-on-delivery parcel service",
+        "প্রেরকের নাম লিখুন": "Sender name",
+        "প্রাপকের নাম": "Recipient Name",
+        "প্রাপকের নাম লিখুন": "Recipient's Name",
+        "ডিপোজিট বিবরণ": "Deposit details",
+        "বিস্তারিত ঠিকানা": "Detail Address",
+        "প্রাপকের ডেলিভারি ঠিকানা লিখুন": "Recipient's Delivery Address",
+        "কুপন কোড (যদি থাকে)": "Coupon Code (If any)",
+        "কুপন কোড দিন (যেমন: TIME15)": "Enter Coupon Code (e.g. TIME15)",
+        "সুপারফাস্ট কাস্টমাইজড হাই-সিকিউরিটি ভিআইপি গোল্ডেন ডেসপ্যাচ (প্যাকেজ ও দূরত্বের ভিত্তিতে শুরু)": "Superfast customized high-security VIP golden dispatch (Starts from 2500 TK based on weight & distance)",
+        "ঢাকার ভেতর ২০০ টাকা, ঢাকার বাইরে ৩৫০ টাকা (+৫০ টাকা এক্সপ্রেস চার্জ)": "200 tk inside Dhaka, 350 tk outside Dhaka (+50 tk express charge)",
+        "৳২,৫০০ থেকে শুরু": "Starts from ৳2,500"
       };
 
       if (fallbackBNtoEN[cleanText]) {
@@ -1173,6 +1213,13 @@ export default function App() {
     order: any;
   }>({ isOpen: false, order: null });
   const [paymentTxId, setPaymentTxId] = useState("");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("bKash");
+
+  useEffect(() => {
+    if (paymentModal.isOpen && paymentModal.order) {
+      setSelectedPaymentMethod(paymentModal.order.paymentMethod || "bKash");
+    }
+  }, [paymentModal.isOpen, paymentModal.order?.id]);
 
   // Load latest order details for payment modal to prevent out-of-sync price and number
   useEffect(() => {
@@ -2804,7 +2851,13 @@ export default function App() {
   const [guestSession, setGuestSession] = useState<{ uid: string; name: string; phone?: string } | null>(() => {
     try {
       const saved = localStorage.getItem("tm_guest_support_session");
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        return JSON.parse(saved);
+      }
+      const uid = "guest_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      const session = { uid, name: "Guest User", phone: "N/A" };
+      localStorage.setItem("tm_guest_support_session", JSON.stringify(session));
+      return session;
     } catch {
       return null;
     }
@@ -2820,6 +2873,8 @@ export default function App() {
   const [localVideoOff, setLocalVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isSpeakerMode, setIsSpeakerMode] = useState(true);
+  const [isPhoneMode, setIsPhoneMode] = useState(false);
 
   // Sync mute state with device tracks
   useEffect(() => {
@@ -3864,15 +3919,15 @@ export default function App() {
     } else {
       const currentId = user?.uid || guestSession?.uid;
       if (currentId) {
-        const q = query(collection(db, "support_rooms"), where("customerUid", "==", currentId));
+        // Direct document snapshot listen to ensure instant and ultra-reliable bidirectional sync for calls/chat!
         unsubscribeRooms = onSnapshot(
-          q,
-          (snapshot) => {
-            const rooms: any[] = [];
-            snapshot.forEach((doc) => {
-              rooms.push({ id: doc.id, ...doc.data() });
-            });
-            setSupportRooms(rooms);
+          doc(db, "support_rooms", currentId),
+          (docSnap) => {
+            if (docSnap.exists()) {
+              setSupportRooms([{ id: docSnap.id, ...docSnap.data() }]);
+            } else {
+              setSupportRooms([]);
+            }
           },
           (err) => handleFirestoreError(err, "LIST", "support_rooms")
         );
@@ -5171,6 +5226,8 @@ export default function App() {
         status: "পেমেন্ট যাচাই",
         transactionId: txid,
         paymentSubmittedAt: new Date().toISOString(),
+        paymentMethod: selectedPaymentMethod,
+        paymentNumber: paymentSettings[selectedPaymentMethod as "bKash" | "Nagad" | "Rocket"] || "",
       };
       if (applied) {
         updateData.discountCode = applied.coupon.code;
@@ -6770,6 +6827,18 @@ export default function App() {
                         })()}
                       </span>
                       <p className="text-[9px] text-emerald-500/80 font-black tracking-widest uppercase mt-1">CONNECTED</p>
+                      {/* Active audio/phone mode status badges */}
+                      <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${isSpeakerMode ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
+                          🔊 Speaker: ON
+                        </span>
+                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${isPhoneMode ? "bg-purple-500/20 text-purple-300 border border-purple-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
+                          📞 Handset: ON
+                        </span>
+                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${localMute ? "bg-red-500/25 text-red-300 border border-red-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
+                          🎙️ Mute: ON
+                        </span>
+                      </div>
                     </div>
                   ) : (
                     <p className="text-xs text-red-500 font-extrabold font-sans">DISCONNECTED</p>
@@ -6781,11 +6850,11 @@ export default function App() {
               <div className="w-full relative z-10 mt-6 pt-6 border-t border-white/5 flex flex-col gap-4">
                 {activeCallingRoom.callState.callStatus === "connected" && (
                   /* Audio Toggle Actions during active Call */
-                  <div className="flex justify-center gap-6 items-center">
+                  <div className="flex justify-center gap-4 items-center">
                     <button
                       type="button"
                       onClick={() => setLocalMute(!localMute)}
-                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localMute ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localMute ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={localMute ? "মাইক্রোফোন আনমিউট করুন" : "মাইক্রোফোন মিউট করুন"}
                     >
                       {localMute ? <MicOff size={16} /> : <Mic size={16} />}
@@ -6794,10 +6863,34 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setLocalVideoOff(!localVideoOff)}
-                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localVideoOff ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${localVideoOff ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={localVideoOff ? "ক্যামেরা অন করুন" : "ক্যামেরা অফ করুন"}
                     >
                       {localVideoOff ? <VideoOff size={16} /> : <Video size={16} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSpeakerMode(!isSpeakerMode);
+                        if (!isSpeakerMode) setIsPhoneMode(false);
+                      }}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${isSpeakerMode ? "bg-indigo-600 text-white shadow shadow-indigo-600/30 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      title={isSpeakerMode ? "স্পিকার অফ করুন" : "স্পিকার অন করুন"}
+                    >
+                      <Volume2 size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPhoneMode(!isPhoneMode);
+                        if (!isPhoneMode) setIsSpeakerMode(false);
+                      }}
+                      className={`p-3.5 rounded-full transition-all cursor-pointer ${isPhoneMode ? "bg-purple-600 text-white shadow shadow-purple-600/30 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
+                      title={isPhoneMode ? "ফোন হ্যান্ডসেট অফ করুন" : "ফোন হ্যান্ডসেট অন করুন"}
+                    >
+                      <Smartphone size={16} />
                     </button>
                   </div>
                 )}
@@ -9717,7 +9810,7 @@ export default function App() {
                     </p>
                     <p className="text-4xl font-black text-teal-800 dark:text-teal-400 tracking-tighter">
                       {courierForm.deliveryType === "ভিআইপি গোল্ডেন এক্সপ্রেস" 
-                        ? (trans("৳২,৫০০ থেকে शुरू", "৳2,500+ Starts")) 
+                        ? (trans("৳২,৫০০ থেকে শুরু", "৳2,500+ Starts")) 
                         : `৳${courierForm.fromZone === courierForm.toZone ? (courierForm.deliveryType === "এক্সপ্রেস" ? 250 : 200) : (courierForm.deliveryType === "এক্সপ্রেস" ? 400 : 350)}`
                       }
                     </p>
@@ -10266,7 +10359,7 @@ export default function App() {
                                   {trans("বাতিল করুন", "Cancel")}
                                 </button>
                               )}
-                              {order.status === "মূল্য নির্ধারণ" && (
+                              {order.charge > 0 && order.status !== "সম্পন্ন" && order.status !== "বাতিল" && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -10274,7 +10367,7 @@ export default function App() {
                                   }}
                                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white text-xs font-bold rounded-xl transition-all active:scale-95"
                                 >
-                                  পেমেন্ট করুন
+                                  {order.status === "মূল্য নির্ধারণ" ? "পেমেন্ট করুন" : "ম্যানুয়াল পেমেন্ট"}
                                 </button>
                               )}
                               <button
@@ -11932,6 +12025,7 @@ export default function App() {
                 <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
                   {[
                     ...(isSuperAdmin ? ["dashboard"] : []),
+                    "ai_copilot",
                     "orders",
                     "order-analytics",
                     "reminders",
@@ -11955,8 +12049,10 @@ export default function App() {
                     >
                       {tab === "dashboard"
                         ? "ড্যাশবোর্ড"
-                        : tab === "orders"
-                          ? "অর্ডারস"
+                        : tab === "ai_copilot"
+                          ? "এআই অ্যাসিস্ট্যান্ট 🤖"
+                          : tab === "orders"
+                            ? "অর্ডারস"
                           : tab === "order-analytics"
                             ? "হাইইস্ট অর্ডার আইডি 📊"
                             : tab === "reminders"
@@ -12055,6 +12151,17 @@ export default function App() {
                   <p className="text-3xl font-black">{isSafeMode ? "•••" : allUsers.length}</p>
                 </div>
               </div>
+
+              {adminTab === "ai_copilot" && (
+                <div className="space-y-6">
+                  <AICopilot
+                    orders={orders}
+                    allUsers={allUsers}
+                    addToast={addToast}
+                    trans={trans}
+                  />
+                </div>
+              )}
 
               {adminTab === "dashboard" && (
                 <div className="space-y-6">
@@ -16143,7 +16250,7 @@ export default function App() {
                                       <p className="text-[11px] leading-relaxed font-bold bg-sky-50/70 dark:bg-sky-950/20 border border-sky-100/30 dark:border-sky-900/20 text-sky-900 dark:text-sky-200 px-2.5 py-1.5 rounded-xl">
                                         📍 {u.location.address || "নাম অনুবাদ করা হচ্ছে..."}
                                       </p>
-                                      <div className="flex items-center justify-between text-[9px] text-gray-405 dark:text-gray-400 font-mono">
+                                      <div className="flex items-center justify-between text-[9px] text-gray-455 dark:text-gray-400 font-mono">
                                         <span>Lat: {u.location.lat.toFixed(5)} | Lng: {u.location.lng.toFixed(5)}</span>
                                         <span>{u.location.updatedAt ? new Date(u.location.updatedAt).toLocaleTimeString() : ""}</span>
                                       </div>
@@ -16156,7 +16263,7 @@ export default function App() {
                                       </button>
                                     </div>
                                   ) : (
-                                    <div className="text-[10px] text-gray-405 dark:text-gray-500 italic mt-1 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 flex items-center gap-1">
+                                    <div className="text-[10px] text-gray-455 dark:text-gray-500 italic mt-1 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 flex items-center gap-1">
                                       <span>🛰️ লাইভ অবস্থান রেকর্ড করা হয়নি</span>
                                     </div>
                                   )}
@@ -16173,7 +16280,7 @@ export default function App() {
                                         : u.role === "banned"
                                           ? "bg-red-500 text-white font-black uppercase animate-pulse border-red-600 shadow-sm"
                                           : "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-gray-200 border-gray-200 dark:border-gray-700"
-                                }`}>
+                                 }`}>
                                   {u.role === "admin"
                                     ? "👑 এডমিন"
                                     : u.role === "staff"
@@ -18313,16 +18420,35 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* Manual Payment Method Selector Tabs */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase text-gray-400 tracking-wider font-sans">
+                        পেমেন্ট গেটওয়ে সিলেক্ট করুন
+                      </label>
+                      <div className="flex gap-2 p-1 bg-gray-100 dark:bg-white/5 rounded-xl border border-gray-150 dark:border-white/10">
+                        {["bKash", "Nagad", "Rocket"].map((method) => (
+                          <button
+                            key={method}
+                            type="button"
+                            onClick={() => setSelectedPaymentMethod(method)}
+                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${selectedPaymentMethod === method ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:text-gray-700 dark:text-gray-400"}`}
+                          >
+                            {method}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold uppercase text-gray-400 tracking-wider font-sans">
                         পেমেন্ট নম্বর (Send Money)
                       </label>
                       <div className="flex items-center justify-between p-3 bg-indigo-500/5 dark:bg-indigo-950/10 rounded-xl border border-indigo-150 dark:border-indigo-950/40">
-                        <span className="font-extrabold text-[#5366f1] dark:text-indigo-400 font-mono text-sm">
-                          {liveOrder?.paymentNumber || paymentSettings[(liveOrder?.paymentMethod || "bKash") as "bKash" | "Nagad" | "Rocket"] || "01XXXXXXXXX"}
+                        <span className="font-extrabold text-[#5366f1] dark:text-indigo-400 font-mono text-sm animate-pulse">
+                          {paymentSettings[selectedPaymentMethod as "bKash" | "Nagad" | "Rocket"] || "01XXXXXXXXX"}
                         </span>
-                        <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase font-mono">
-                          {liveOrder?.paymentMethod || "bKash"} Personal
+                        <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase font-mono animate-pulse">
+                          {selectedPaymentMethod} Personal
                         </span>
                       </div>
                     </div>

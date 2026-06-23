@@ -6,38 +6,50 @@ import firebaseConfig from '../firebaseConfig';
 const app = initializeApp(firebaseConfig);
 
 let dbInstance;
+let isIndexedDBAvailable = false;
 try {
-  const options = {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    }),
-    experimentalForceLongPolling: true,
-    experimentalAutoDetectLongPolling: true
-  };
+  if (typeof window !== "undefined" && window.indexedDB) {
+    isIndexedDBAvailable = true;
+  }
+} catch (e) {
+  console.warn("IndexedDB is blocked or unavailable (likely due to sandbox/iframe restrictions):", e);
+}
+
+let options: any = {
+  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true
+};
+
+if (isIndexedDBAvailable) {
+  try {
+    options = {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      }),
+      experimentalForceLongPolling: true,
+      experimentalAutoDetectLongPolling: true
+    };
+  } catch (e) {
+    console.warn("Failed to construct persistent local cache options, using default polling:", e);
+  }
+}
+
+try {
   if (firebaseConfig.firestoreDatabaseId) {
     dbInstance = initializeFirestore(app, options, firebaseConfig.firestoreDatabaseId);
   } else {
     dbInstance = initializeFirestore(app, options);
   }
 } catch (e) {
-  console.warn("Firestore persistent local cache failed to initialize, falling back with long polling enabled:", e);
-  const fallbackOptions = {
-    experimentalForceLongPolling: true,
-    experimentalAutoDetectLongPolling: true
-  };
+  console.warn("initializeFirestore failed, attempting fallback getFirestore:", e);
   try {
-    if (firebaseConfig.firestoreDatabaseId) {
-      dbInstance = initializeFirestore(app, fallbackOptions, firebaseConfig.firestoreDatabaseId);
-    } else {
-      dbInstance = initializeFirestore(app, fallbackOptions);
-    }
-  } catch (err) {
-    console.warn("Could not initializeFirestore with fallback options:", err);
     if (firebaseConfig.firestoreDatabaseId) {
       dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
     } else {
       dbInstance = getFirestore(app);
     }
+  } catch (err) {
+    console.error("Critical: Could not initialize or get Firestore:", err);
   }
 }
 

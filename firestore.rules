@@ -206,7 +206,7 @@ service cloud.firestore {
       allow get: if true;
       allow create: if true;
       allow list: if isAdmin() || isStaff();
-      allow update: if isAdmin() || isStaff();
+      allow update: if isAdmin() || isStaff() || roomId == request.auth.uid || (request.auth == null);
       allow delete: if isAdmin() || isStaff();
 
       match /messages/{messageId} {
@@ -214,6 +214,11 @@ service cloud.firestore {
         allow create: if true;
         allow update, delete: if isAdmin() || isStaff();
       }
+    }
+
+    match /security_alerts/{alertId} {
+      allow read, update, delete: if isAdmin() || isStaff();
+      allow create: if true;
     }
 
     match /lotteries/{docId} {
