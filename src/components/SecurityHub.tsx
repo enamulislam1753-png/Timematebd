@@ -12,7 +12,7 @@ import {
   RotateCcw,
   Sliders
 } from "lucide-react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 interface SecurityAlert {
@@ -29,48 +29,36 @@ interface SecurityAlert {
 export const SecurityHub: React.FC = () => {
   const [bannedCount, setBannedCount] = useState<number>(0);
   const [securityLevel, setSecurityLevel] = useState<"strict" | "standard" | "permissive">("standard");
-  const [alerts, setAlerts] = useState<SecurityAlert[]>([
-    {
-      id: "AL-109",
-      userName: "Kazi Nabil",
-      userPhone: "01823774612",
-      issue: "একাধিক ভিন্ন ডিভাইস (৩টি আইপি) থেকে একই সাথে লগইনের চেষ্টা",
-      severity: "high",
-      time: "২ মিনিট আগে",
-      status: "active",
-      deviceId: "DEV_89AX99"
-    },
-    {
-      id: "AL-108",
-      userName: "Sabbir Ahmed",
-      userPhone: "01918374821",
-      issue: "অস্বাভাবিক স্পিন হুইল ও কয়েন রিকোয়েস্ট ফ্রিকোয়েন্সি (Rate Limit Trigger)",
-      severity: "medium",
-      time: "১০ মিনিট আগে",
-      status: "active",
-      deviceId: "DEV_33YY62"
-    },
-    {
-      id: "AL-107",
-      userName: "Unknown",
-      userPhone: "01723114422",
-      issue: "জিপিএস মক লোকেশন (Mock Location Detector) সক্রিয় রেখে টিকিট বুকিংয়ের চেষ্টা",
-      severity: "high",
-      time: "২৫ মিনিট আগে",
-      status: "active",
-      deviceId: "DEV_99JJ21"
-    },
-    {
-      id: "AL-106",
-      userName: "Mahbub Alam",
-      userPhone: "01723114422",
-      issue: "রুট করা ডিভাইস সনাক্ত করা হয়েছে (Device Integraty Fail)",
-      severity: "low",
-      time: "১ ঘন্টা আগে",
-      status: "resolved",
-      deviceId: "DEV_01PP39"
-    }
-  ]);
+  const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
+
+  // Real-time sync of security alerts from Firebase
+  useEffect(() => {
+    const unsubAlerts = onSnapshot(
+      collection(db, "security_alerts"),
+      (snapshot) => {
+        const list: SecurityAlert[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            userName: data.userName || "Unknown",
+            userPhone: data.userPhone || "N/A",
+            issue: data.issue || "সন্দেহজনক কার্যকলাপ সনাক্ত করা হয়েছে",
+            severity: data.severity || "medium",
+            time: data.timestamp ? new Date(data.timestamp).toLocaleTimeString("bn-BD") : "সাম্প্রতিক",
+            status: data.status || "active",
+            deviceId: data.deviceId || "DEV_AUTO"
+          });
+        });
+        setAlerts(list);
+      },
+      (err) => {
+        console.warn("Security Alerts sync fail:", err);
+      }
+    );
+
+    return () => unsubAlerts();
+  }, []);
 
   // Real-time counter of banned users from Firebase
   useEffect(() => {
@@ -92,12 +80,18 @@ export const SecurityHub: React.FC = () => {
     return () => unsub();
   }, []);
 
-  const resolveAlert = (id: string) => {
-    setAlerts((prev) =>
-      prev.map((alert) =>
-        alert.id === id ? { ...alert, status: "resolved" } : alert
-      )
-    );
+  const resolveAlert = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "security_alerts", id), { status: "resolved" });
+    } catch (err) {
+      console.error("Failed to resolve alert:", err);
+      // Fallback local update
+      setAlerts((prev) =>
+        prev.map((alert) =>
+          alert.id === id ? { ...alert, status: "resolved" } : alert
+        )
+      );
+    }
   };
 
   const changeLevel = (level: "strict" | "standard" | "permissive") => {
