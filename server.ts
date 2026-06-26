@@ -29,7 +29,7 @@ async function startServer() {
       res.setHeader('Content-Disposition', 'attachment; filename="timemate-bd.apk"');
       res.sendFile(filePath);
     } else {
-      console.error(`[APK Error] APK file not found at: ${filePath}`);
+      console.warn(`[APK Notice] APK file not found at: ${filePath}`);
       res.status(404).send('APK File Not Found.');
     }
   });
@@ -53,14 +53,14 @@ async function startServer() {
 
       const data = await firebaseResponse.json();
       if (!firebaseResponse.ok) {
-        console.error("[Account REST Admin API User-Creation Failure]:", data.error);
+        console.warn("[Account REST Admin API User-Creation Notice]:", data.error);
         return res.status(firebaseResponse.status).json({ error: data.error?.message || "Firebase SDK error." });
       }
 
       console.log(`[Account REST Admin API Success]: Account generated with UID: ${data.localId}`);
       res.json({ uid: data.localId });
     } catch (err: any) {
-      console.error("[Account REST Admin Exception]:", err);
+      console.warn("[Account REST Admin Notice]:", err.message || err);
       res.status(500).json({ error: err.message || "Internal server error." });
     }
   });
@@ -143,8 +143,8 @@ async function startServer() {
             const fetch = (await import("node-fetch")).default as any;
             await fetch(url);
             console.log(`[SMS Gateway Success] Dispatched SMS OTP to: ${target}`);
-          } catch (smsErr) {
-            console.error("[SMS Gateway integration failure]:", smsErr);
+          } catch (smsErr: any) {
+            console.warn("[SMS Gateway integration notice]:", smsErr?.message || smsErr);
           }
         }
 
@@ -156,7 +156,7 @@ async function startServer() {
         });
       }
     } catch (err: any) {
-      console.error("[OTP Engine Dispatch Error]:", err);
+      console.warn("[OTP Engine Dispatch Notice]:", err?.message || err);
       res.status(500).json({ error: err.message || "Failed to process OTP request." });
     }
   });
@@ -186,7 +186,7 @@ async function startServer() {
       otpStore.delete(target);
       res.json({ success: true, message: "OTP Verification Completed Successfully!" });
     } catch (err: any) {
-      console.error("[OTP Verification Endpoint Exception]:", err);
+      console.warn("[OTP Verification Endpoint Notice]:", err?.message || err);
       res.status(500).json({ error: err.message || "Failed to verify OTP." });
     }
   });
@@ -218,10 +218,10 @@ async function startServer() {
         });
       }
 
-      // 2. Fetch Server-Side Protected API Key (We fallback to a placeholder if not set in .env)
-      const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_FIREBASE_API_KEY || "";
+      // 2. Fetch Server-Side Protected API Key
+      const apiKey = process.env.GEMINI_API_KEY || "";
       if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API key is not configured on the server." });
+        return res.status(503).json({ error: "Gemini API key is not configured on the server." });
       }
 
       console.log(`[API Secure AI Proxy] Forwarding sanitized request to Gemini 1.5-Flash...`);
@@ -249,7 +249,7 @@ async function startServer() {
       const data = await geminiResponse.json();
       
       if (!geminiResponse.ok) {
-        console.error("[Gemini Web Proxy Error]:", data);
+        console.warn("[Gemini Web Proxy Notice]:", data?.error?.message || "Google AI Service returned error.");
         return res.status(geminiResponse.status).json({ error: data.error?.message || "Google AI Service error." });
       }
 
@@ -257,7 +257,7 @@ async function startServer() {
       const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated due to safety filter block.";
       res.json({ text: replyText });
     } catch (e: any) {
-      console.error("[Gemini Proxy Exception]:", e);
+      console.warn("[Gemini Proxy Notice]:", e?.message || e);
       res.status(500).json({ error: e.message || "Internal AI backend failure." });
     }
   });
