@@ -2,6 +2,10 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import '../index.css';
+import { initSecurityGuardian } from './utils/securityGuardian';
+
+// Start the production-grade browser fortress and anti-cracking shield
+initSecurityGuardian();
 
 // Prevent pinch-to-zoom gestures (multi-touch) on the document level
 document.addEventListener(

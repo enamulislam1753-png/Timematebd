@@ -110,18 +110,20 @@ export default defineConfig(({mode}) => {
       ]
     },
     optimizeDeps: {
-      exclude: [
-        'firebase',
+      include: [
         'firebase/app',
         'firebase/auth',
-        'firebase/firestore',
-        '@firebase/app',
-        '@firebase/component',
-        '@firebase/auth',
-        '@firebase/firestore',
-        '@firebase/util',
-        '@firebase/logger'
+        'firebase/firestore'
       ]
+    },
+    build: {
+      sourcemap: false, // Prevent extraction of original TypeScript files via source maps in production
+      minify: 'esbuild',
+      cssMinify: true,
+    },
+    esbuild: {
+      // Strips debugger and console statements from the compiled bundle to block inspector logging
+      drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
