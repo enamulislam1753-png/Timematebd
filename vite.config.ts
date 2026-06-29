@@ -96,6 +96,32 @@ export default defineConfig(({mode}) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+      dedupe: [
+        'firebase',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
+        '@firebase/app',
+        '@firebase/component',
+        '@firebase/auth',
+        '@firebase/firestore',
+        '@firebase/util',
+        '@firebase/logger'
+      ]
+    },
+    optimizeDeps: {
+      exclude: [
+        'firebase',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
+        '@firebase/app',
+        '@firebase/component',
+        '@firebase/auth',
+        '@firebase/firestore',
+        '@firebase/util',
+        '@firebase/logger'
+      ]
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

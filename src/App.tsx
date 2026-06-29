@@ -4,6 +4,7 @@ import React, {
   useRef,
   useMemo,
   useCallback,
+  useTransition,
 } from "react";
 import {
   onAuthStateChanged,
@@ -99,6 +100,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { APIProvider, Map, AdvancedMarker, Pin } from "@vis.gl/react-google-maps";
 import QRCode from "qrcode";
 import { BufferedInput, BufferedTextArea } from "./components/BufferedInput";
+import { DeferredSection } from "./components/DeferredSection";
 import {
   AreaChart,
   Area,
@@ -737,214 +739,106 @@ export default function App() {
     "ইউটিলিটি বিল পে": "Utility Bill Payments",
     "ইউটিলিটি বিল পরিশোধ": "Utility Bill Payments",
     "ডাক্তার অ্যাপয়েন্টমেন্ট": "Doctor Appointment",
-    অন্যান্য: "Others",
-    মেডিসিন: "Medicines Tracker",
-    মিটিং: "Meeting Reminders",
-    "বিল পেমেন্ট": "Utility Payments",
-    "বাসের টিকেট": "Bus Tickets",
-    "ট্রেনের টিকেট": "Train Tickets",
-    "বিমানের টিকেট": "Flight Tickets",
-    "সিনেমা টিকেট": "Movie Tickets",
-    প্লাম্বার: "Professional Plumber",
-    ইলেকট্রিশিয়ান: "Professional Electrician",
-    "এসি সার্ভিস": "AC Maintenance/Fixing",
-    "ঘর পরিষ্কার": "Deep House Cleaning",
-    "৳২০০ থেকে শুরু": "Starting from ৳200",
-    "৳৫০০ থেকে শুরু": "Starting from ৳500",
-
-    // Districts & Zones
-    ঢাকা: "Dhaka",
-    চট্টগ্রাম: "Chittagong",
-    সিলেট: "Sylhet",
-    রাজশাহী: "Rajshahi",
-    খুলনা: "Khulna",
-    বরিশাল: "Barisal",
-    রংপুর: "Rangpur",
-    ময়মনসিংহ: "Mymensingh",
-
-    // Document & Weight Types
-    ডকুমেন্ট: "Documents/Letters",
-    পার্সেল: "Parcel Box",
-    রেগুলার: "Regular Delivery",
-    এক্সপ্রেস: "Express Delivery",
-
-    // Statuses
-    নতুন: "New / Awaiting Review",
-    "মূল্য নির্ধারণ": "Pricing Set / Pending Pay",
-    "পেমেন্ট যাচাই": "Verifying Payment Gateway",
-    প্রক্রিয়াধীন: "In Processing / Shipped",
-    সম্পন্ন: "Delivered successfully",
-    বাতিল: "Cancelled Order",
-
-    // General text phrases & labels
-    "ধন্যবাদ এডমিন আপনার অর্ডারটি চেক করছেন":
-      "Thank you, admin is reviewing your order",
-    "অর্ডার স্ট্যাটাস": "Order Status",
-    "অর্ডার বাতিল": "Order Cancelled",
-    "অর্ডার আইডি": "Order ID",
-    তারিখ: "Date",
-    গ্রাহক: "Customer Name",
-    "ফোন নম্বর": "Phone Number",
-    ঠিকানা: "Full Address",
-    "মোট বিল": "Total Amount",
-    অ্যাকশন: "Action",
-    বিস্তারিত: "View details",
-    "বাতিল করুন": "Cancel Order",
-    "পেমেন্ট করুন": "Complete Payment",
-    "অর্ডার ট্র্যাক করুন": "Track Order Live",
-    "আমার অর্ডার": "My Orders",
-    হোম: "Home Desk",
-    "সার্ভিস সমূহ": "Our Handyman Services",
-    "কুরিয়ার সার্ভিস": "Priority Courier",
-    "কাজ করতে চান? যোগ দিন 💼": "Become our Agent / Rider 💼",
-    অনুরোধ: "Request Now",
-    "মোবাইল যাচাই": "Mobile Verification",
-    মেনু: "Navigation Menu",
-    "লগ আউট": "Log Out Securely",
-    "লগইন করুন": "Log In to TimeMate",
-    "নিযুক্ত কুরিয়ার রাইডার": "Assigned Courier Rider",
-    电话: "Phone",
-    "ফোন করুন": "Call Rider",
-    বন্টন: "Local Distribution Hub",
-    হাব: "Central Warehousing",
-    ডেলিভারি: "At Your Doorstep",
-    "অর্ডারটি সফলভাবে সম্পন্ন করা হয়েছে": "Order successfully placed!",
-    "অর্ডার নিশ্চিতকরণ": "Order Confirmation",
     "ইন-অ্যাপ নোটিফিকেশন সচল আছে": "In-app real-time notifications are enabled",
-    নোটিফিকেশন: "Notification Feed",
-    "সব পঠিত (Mark Read)": "Mark All as Read",
-    "ডেস্কটপ রিয়েল-টাইম পুশ নোটিফিকেশনটি সচল করুন!":
-      "Turn on real-time desktop notifications!",
-    "সবগুলো প্রয়োজনীয় ঘর পূরণ করুন এবং সার্ভিস সেক্টর সিলেক্ট করুন":
-      "Please fill out all required fields and select service sector",
-    "সাফল্যজনকভাবে সার্ভিস প্রোভাইডর হিসেবে আপনার আবেদন জমা হয়েছে!":
-      "Your service provider request has been submitted successfully!",
-    "টাইমমেট বিডি": "TimeMate BD",
-    "অ সময়ের সঙ্গী": "Your Time Mate Always",
-    "অ সময়ের সঙ্গী 🤝": "Your Time Mate Always 🤝",
-    স্বাগতম: "Welcome, dear Guest",
-    লগইন: "Sign In",
-    রেজিস্ট্রেশন: "Sign Up",
-    পাসওয়ার্ড: "Password",
-    "সবগুলো ঘর পূরণ করুন": "Please fill in all blanks",
-    "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে":
-      "Password needs to be at least 6 characters",
-    "রেজিস্ট্রেশন সফল হয়েছে!": "Registration completed successfully!",
-    "স্বাগত বোনাস ১০০ কয়েন যোগ করা হয়েছে":
-      "100 Welcome coins has been added to your wallet!",
-    "লগইন সফল হয়েছে!": "Login successful!",
-    "আপনার জিপিএস অবস্থান আমাদের সঠিক সার্ভিস দিতে সাহায্য করবে।":
-      "Enabling location coordinates allows us to deploy nearby workers.",
-    "অনুমতি দিন": "Grant Access",
-    পরবর্তীতে: "Dismiss",
-    "আমাদের সেবাসমূহ": "Our Services",
-    "সার্ভিস বুকিং": "Service Booking",
-    "সার্ভিস নির্বাচন করুন": "Select Service",
-    "সাব-বিভাগ নির্বাচন করুন *": "Select Sub-Category *",
-    "আপনার নাম": "Your Name",
-    "আপনার নাম দিন": "Your Name",
-    "মোবাইল নম্বর": "Mobile Number",
-    "ঠিকানা (ঐচ্ছিক)": "Address (Optional)",
-    "আপনার বিস্তারিত ঠিকানা": "Your Detailed Address",
-    "বিশেষ নির্দেশনা": "Special Instructions",
-    "আপনার কোনো জিজ্ঞাসা থাকলে লিখুন...":
-      "Tell us any special requests or instructions...",
   };
 
   const trans = (text: string, alternateEn?: string) => {
     if (!text) return "";
     const cleanText = text.trim();
+    const cleanLower = cleanText.toLowerCase();
 
-    // Determine the state
-    if (language === "BN") {
-      // Return Bangla translation
-      if (alternateEn) {
-        return text;
-      }
+    const unifiedTranslations: { bn: string; en: string }[] = [
+      { bn: "ব্যস্ত মানুষের কাজ", en: "Busy Life Errand" },
+      { bn: "ব্যস্ত মানুষের কাজ করে দেওয়া", en: "Busy Life Errand Service" },
+      { bn: "রিমাইন্ডার সার্ভিস", en: "Reminder Service" },
+      { bn: "সবকিছু স্মরণ করিয়ে দিই", en: "Remember Everything for You" },
+      { bn: "টিকেট বুকিং", en: "Ticket Booking" },
+      { bn: "বাস, ট্রেন, বিমানের টিকেট", en: "Bus, Train, Flight Tickets" },
+      { bn: "এক্সপার্ট সার্ভিস", en: "Expert Services" },
+      { bn: "প্লাম্বার, ইলেকট্রিশিয়ান, এসি সার্ভিস", en: "Plumber, Electrician, AC Servicing" },
+      { bn: "বাজার, বিল পেমেন্ট, লাইনে দাঁড়ানো", en: "Groceries, Bill Payments, Line Standing" },
+      { bn: "Lines stand", en: "Lines stand" },
+      { bn: "Lines standing", en: "Lines standing" },
+      { bn: "Lines standing support", en: "Lines standing support" },
+      { bn: "Lines standing/waiting assistance", en: "Lines standing/waiting assistance" },
+      { bn: "Lines standing/waiting service", en: "Lines standing/waiting service" },
+      { bn: "Lines standing/waiting service in city", en: "Lines standing/waiting service in city" },
+      { bn: "লাইনে দাঁড়ানো", en: "Standing in Queue" },
+    ];
 
-      // Look up if text is English phrase to translation
-      const foundBN = Object.keys(translationDictionary).find(
-        (bnKey) =>
-          translationDictionary[bnKey].toLowerCase() ===
-          cleanText.toLowerCase(),
+    if (language === "EN") {
+      if (alternateEn) return alternateEn;
+
+      const match = unifiedTranslations.find(
+        (t) => t.bn.toLowerCase() === cleanLower || t.en.toLowerCase() === cleanLower
       );
-      if (foundBN) return foundBN;
-
-      const fallbackENtoBN: { [key: string]: string } = {
-        home: "হোম",
-        "home desk": "হোম",
-        "my orders": "আমার অর্ডার",
-        "profile settings": "প্রোফাইল সেটিংস",
-        "admin panel": "এডমিন প্যানেল",
-        "log out": "লগ আউট",
-        login: "লগইন",
-        cancel: "বাতিল করুন",
-        "confirm order": "অর্ডার নিশ্চিতকরণ",
-        "select service": "সার্ভিস নির্বাচন করুন",
-        language: "ভাষা",
-        "display theme": "ডিসপ্লে থিম",
-        light: "লাইট মোড",
-        "dark mode": "ডার্ক মোড",
-        notifications: "নোটিফিকেশন",
-        "app language": "অ্যাপের ভাষা নির্ধারণ",
-        "system online": "সিস্টেম অনলাইন",
-        "pricing set": "মূল্য নির্ধারণ",
-        "verifying payment": "পেমেন্ট যাচাই",
-        "in processing": "প্রক্রিয়াধীন",
-        delivered: "সম্পন্ন",
-        cancelled: "বাতিল",
-        "total orders": "মোট অর্ডার",
-        "system optimized": "সিস্টেম ঠিক আছে",
-        search: "অনুসন্ধান",
-        "track order": "অর্ডার ট্র্যাক",
-        success: "সফল",
-        error: "ত্রুটি",
-      };
-
-      const cleanLower = cleanText.toLowerCase();
-      if (fallbackENtoBN[cleanLower]) {
-        return fallbackENtoBN[cleanLower];
-      }
-      return text;
-    } else {
-      // Return English translation
-      if (alternateEn) {
-        return alternateEn;
-      }
-      if (translationDictionary[cleanText]) {
-        return translationDictionary[cleanText];
-      }
-      const foundENKey = Object.keys(translationDictionary).find(
-        (bnKey) => bnKey.toLowerCase() === cleanText.toLowerCase(),
-      );
-      if (foundENKey) {
-        return translationDictionary[foundENKey];
-      }
+      if (match) return match.en;
 
       const fallbackBNtoEN: { [key: string]: string } = {
+        "লাইনে দাঁড়ানো": "Standing in Queue",
+        "বাজার করা": "Groceries Shopping",
+        "ব্যাংকিং কাজ": "Banking Support",
+        "ইউটিলিটি বিল পে": "Utility Bill Payments",
+        "ইউটিলিটি বিল পরিশোধ": "Utility Bill Payments",
+        "ডাক্তার অ্যাপয়েন্টমেন্ট": "Doctor Appointment",
+        অন্যান্য: "Others",
+        মেডিসিন: "Medicines Tracker",
+        মিটিং: "Meeting Reminders",
+        "বিল পেমেন্ট": "Utility Payments",
+        "বাসের টিকেট": "Bus Tickets",
+        "ট্রেনের টিকেট": "Train Tickets",
+        "বিমানের টিকেট": "Flight Tickets",
+        "সিনেমা টিকেট": "Movie Tickets",
+        প্লাম্বার: "Professional Plumber",
+        ইলেকট্রিশিয়ান: "Professional Electrician",
+        "এসি সার্ভিস": "AC Maintenance/Fixing",
+        "ঘর পরিষ্কার": "Deep House Cleaning",
+        "৳২০০ থেকে শুরু": "Starting from ৳200",
+        "৳৫০০ থেকে শুরু": "Starting from ৳500",
+        "লগইন করুন": "Log In to TimeMate",
+        "নিযুক্ত কুরিয়ার রাইডার": "Assigned Courier Rider",
+        电话: "Phone",
+        "ফোন করুন": "Call Rider",
+        বন্টন: "Local Distribution Hub",
+        হাব: "Central Warehousing",
+        ডেলিভারি: "At Your Doorstep",
+        "অর্ডারটি সফলভাবে সম্পন্ন করা হয়েছে": "Order successfully placed!",
+        "অর্ডার নিশ্চিতকরণ": "Order Confirmation",
+        "ইন-অ্যাপ নোটিফিকেশন সচল আছে": "In-app real-time notifications are enabled",
+        নোটিফিকেশন: "Notification Feed",
+        "সব পঠিত (Mark Read)": "Mark All as Read",
+        "ডেস্কটপ রিয়েল-টাইম পুশ নোটিফিকেশনটি সচল করুন!": "Turn on real-time desktop notifications!",
+        "সবগুলো প্রয়োজনীয় ঘর পূরণ করুন এবং সার্ভিস সেক্টর সিলেক্ট করুন": "Please fill out all required fields and select service sector",
+        "সাফল্যজনকভাবে সার্ভিস প্রোভাইডর হিসেবে আপনার আবেদন জমা হয়েছে!": "Your service provider request has been submitted successfully!",
+        "টাইমমেট বিডি": "TimeMate BD",
+        "অ সময়ের সঙ্গী": "Your Time Mate Always",
+        "অ সময়ের সঙ্গী 🤝": "Your Time Mate Always 🤝",
+        স্বাগতম: "Welcome, dear Guest",
+        লগইন: "Sign In",
+        রেজিস্ট্রেশন: "Sign Up",
+        পাসওয়ার্ড: "Password",
+        "সবগুলো ঘর পূরণ করুন": "Please fill in all blanks",
+        "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে": "Password needs to be at least 6 characters",
+        "রেজিস্ট্রেশন সফল হয়েছে!": "Registration completed successfully!",
+        "স্বাগত বোনাস ১০০ কয়েন যোগ করা হয়েছে": "100 Welcome coins has been added to your wallet!",
+        "লগইন সফল হয়েছে!": "Login successful!",
+        "আপনার জিপিএস অবস্থান আমাদের সঠিক সার্ভিস দিতে সাহায্য করবে।": "Enabling location coordinates allows us to deploy nearby workers.",
+        "অনুমতি দিন": "Grant Access",
+        পরবর্তীতে: "Dismiss",
+        "আমাদের সেবাসমূহ": "Our Services",
         "সার্ভিস বুকিং": "Service Booking",
+        "সার্ভিস নির্বাচন করুন": "Select Service",
         "সাব-বিভাগ নির্বাচন করুন *": "Select Sub-Category *",
         "আপনার নাম": "Your Name",
-        "আপনার নাম দিন": "Enter Your Name",
+        "আপনার নাম দিন": "Your Name",
         "মোবাইল নম্বর": "Mobile Number",
         "ঠিকানা (ঐচ্ছিক)": "Address (Optional)",
-        "আপনার বিস্তারিত ঠিকানা": "Enter Your Detailed Address",
-        "বিশেষ নির্দেশনা": "Special Instructions",
-        "আপনার কোনো জিজ্ঞাসা থাকলে লিখুন...":
-          "Write down if you have any questions...",
-        "অর্ডার নিশ্চিতকরণ": "Confirm Order",
-        "ভাষা ও ডিসপ্লে থিম সেটিংস": "Language & Display Theme Settings",
-        "সিস্টেম অনলাইন": "System Online",
-        "কমিউনিটি চ্যাট রুম 💬": "Community Chat Room 💬",
-        "রিয়েল-টাইম লাইভ কাস্টমার সাপোর্ট ফোরাম":
-          "Real-time Live Customer Support Forum",
-        "আপনার মেসেজ লিখুন...": "Type your message...",
+        "আপনার বিস্তারিত ঠিকানা": "Your Detailed Address",
+        "विशेष নির্দেশনা": "Special Instructions",
+        "আপনার কোনো জিজ্ঞাসা থাকলে লিখুন...": "Tell us any special requests or instructions...",
         "বার্তা পাঠান": "Send Message",
-        "আপনার ভাষা ও থিম ডিভাইস মেমোরিতে সেভ থাকবে":
-          "Your language & theme preferences are saved locally.",
-        "অর্ডারটি সফলভাবে সম্পন্ন করা হয়েছে": "Order placed successfully!",
-        "ধন্যবাদ এডমিন আপনার অর্ডারটি চেক করছেন":
-          "Thanks! Admin is reviewing your order.",
+        "আপনার ভাষা ও থিম ডিভাইস মেমোরিতে সেভ থাকবে": "Your language & theme preferences are saved locally.",
+        "ধন্যবাদ এডমিন আপনার অর্ডারটি চেক করছেন": "Thanks! Admin is reviewing your order.",
         "অর্ডার স্ট্যাটাস": "Order Status",
         "অর্ডার আইডি": "Order ID",
         তারিখ: "Date",
@@ -962,7 +856,6 @@ export default function App() {
         "আপনার অর্ডার ট্র্যাক করুন": "Track Your Order Active Status",
         "যেমন: TM-123456": "e.g. TM-123456",
         "লগ আউট": "Log Out",
-        "লগইন করুন": "Log In",
         "মোট অর্ডার": "Total Orders",
         "স্বাগতম টাইমমেট বিডিতে!": "Welcome to TimeMate BD!",
         "উপহার সংগ্রহ করুন": "Claim Gift",
@@ -988,7 +881,7 @@ export default function App() {
         "কুরিয়ার চার্জ": "Courier Charge",
         "কোথা থেকে": "From Zone",
         "কোথায়": "To Zone",
-        "ओজন (Weight)": "Weight",
+        "ওজন (Weight)": "Weight",
         "পার্সেল টাইপ": "Parcel Type",
         "ডেলিভারি ধরন": "Delivery Mode",
         "ডেলিভারি এবং পার্সেল সেটিংস": "DELIVERY & PARCEL SETTINGS",
@@ -1014,9 +907,20 @@ export default function App() {
       if (fallbackBNtoEN[cleanText]) {
         return fallbackBNtoEN[cleanText];
       }
-      return text;
+
+      const matchBN = Object.keys(translationDictionary).find(
+        (bnKey) => translationDictionary[bnKey].toLowerCase() === cleanLower
+      );
+      if (matchBN) return translationDictionary[matchBN];
+
+      if (translationDictionary[cleanText]) {
+        return translationDictionary[cleanText];
+      }
     }
+
+    return text;
   };
+
   const [hasDismissedWelcome, setHasDismissedWelcome] = useState(false);
   const [isSecureAdminState, setIsSecureAdminState] = useState(() => {
     try {
@@ -1176,7 +1080,13 @@ export default function App() {
     };
   }, [user, checkIsAdminSecure]);
 
-  const [activeSection, setActiveSection] = useState("home");
+  const [activeSection, setActiveSectionInternal] = useState("home");
+  const [isPendingSection, startSectionTransition] = useTransition();
+  const setActiveSection = useCallback((val: string) => {
+    startSectionTransition(() => {
+      setActiveSectionInternal(val);
+    });
+  }, []);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [toasts, setToasts] = useState<any[]>([]);
@@ -1224,9 +1134,9 @@ export default function App() {
   // Load latest order details for payment modal to prevent out-of-sync price and number
   useEffect(() => {
     if (paymentModal.isOpen && paymentModal.order?.id) {
-      const fetchLatestOrder = async () => {
-        try {
-          const snap = await getDoc(doc(db, "orders", paymentModal.order.id));
+      const unsubscribe = onSnapshot(
+        doc(db, "orders", paymentModal.order.id),
+        (snap) => {
           if (snap.exists()) {
             const data = snap.data();
             setPaymentModal((prev) => {
@@ -1239,11 +1149,12 @@ export default function App() {
               return prev;
             });
           }
-        } catch (err) {
-          console.error("Error fetching latest order for payment:", err);
+        },
+        (err) => {
+          console.error("Error listening to order updates:", err);
         }
-      };
-      fetchLatestOrder();
+      );
+      return () => unsubscribe();
     }
   }, [paymentModal.isOpen, paymentModal.order?.id]);
 
@@ -1296,9 +1207,15 @@ export default function App() {
       : "default",
   );
   const [editingAnnouncement, setEditingAnnouncement] = useState<any>(null);
-  const [coinActiveTab, setCoinActiveTab] = useState<
+  const [coinActiveTab, setCoinActiveTabInternal] = useState<
     "cashout" | "coupon" | "tracking" | "trading"
   >("cashout");
+  const [isPendingCoinActiveTab, startCoinActiveTabTransition] = useTransition();
+  const setCoinActiveTab = useCallback((val: "cashout" | "coupon" | "tracking" | "trading") => {
+    startCoinActiveTabTransition(() => {
+      setCoinActiveTabInternal(val);
+    });
+  }, []);
   const [coinsToCashout, setCoinsToCashout] = useState(500);
   const [cashoutMethod, setCashoutMethod] = useState<
     "bKash" | "Nagad" | "Rocket" | "Mobile Recharge"
@@ -2779,7 +2696,14 @@ export default function App() {
   }, [profile]);
 
   // Admin states
-  const [adminTab, setAdminTab] = useState("orders");
+  const [adminTab, setAdminTabInternal] = useState("orders");
+  const [isPendingAdminTab, startAdminTabTransition] = useTransition();
+  const setAdminTab = useCallback((val: string) => {
+    startAdminTabTransition(() => {
+      setAdminTabInternal(val);
+    });
+  }, []);
+
   const [prefilledReminderUserId, setPrefilledReminderUserId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showAdminEmpPassword, setShowAdminEmpPassword] = useState(false);
@@ -2787,7 +2711,14 @@ export default function App() {
   const [userSearchText, setUserSearchText] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("all");
   const [selectedUserLocation, setSelectedUserLocation] = useState<any | null>(null);
-  const [employeeTab, setEmployeeTab] = useState("jobs");
+
+  const [employeeTab, setEmployeeTabInternal] = useState("jobs");
+  const [isPendingEmployeeTab, startEmployeeTabTransition] = useTransition();
+  const setEmployeeTab = useCallback((val: string) => {
+    startEmployeeTabTransition(() => {
+      setEmployeeTabInternal(val);
+    });
+  }, []);
 
   // Anti-Hacker Shield & Safe Mode State Managers
   const [isSafeMode, setIsSafeMode] = useState<boolean>(() => {
@@ -6371,9 +6302,9 @@ export default function App() {
       }
       const interval = setInterval(() => {
         setIndex((prev) => (prev + 1) % items.length);
-      }, 8000); // Wait 8 seconds before looping to the next item
+      }, 5000); // Wait 5 seconds before looping to the next item
       return () => clearInterval(interval);
-    }, [itemsKey, items.length, isVisible, index]);
+    }, [itemsKey, items.length, isVisible]);
 
     // Keyboard navigation support
     useEffect(() => {
@@ -18329,7 +18260,7 @@ export default function App() {
 
         <AnimatePresence>
           {paymentModal.isOpen && (() => {
-            const liveOrder = orders.find((o) => o.id === paymentModal.order?.id) || paymentModal.order;
+            const liveOrder = paymentModal.order || orders.find((o) => o.id === paymentModal.order?.id);
             if (!liveOrder) return null;
             return (
               <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
@@ -18445,7 +18376,19 @@ export default function App() {
                       </label>
                       <div className="flex items-center justify-between p-3 bg-indigo-500/5 dark:bg-indigo-950/10 rounded-xl border border-indigo-150 dark:border-indigo-950/40">
                         <span className="font-extrabold text-[#5366f1] dark:text-indigo-400 font-mono text-sm animate-pulse">
-                          {paymentSettings[selectedPaymentMethod as "bKash" | "Nagad" | "Rocket"] || "01XXXXXXXXX"}
+                          {(() => {
+                            const selectedLower = selectedPaymentMethod.toLowerCase();
+                            if (liveOrder?.paymentNumber) {
+                              const orderMethodLower = (liveOrder?.paymentMethod || "").toLowerCase();
+                              if (!orderMethodLower || orderMethodLower === selectedLower) {
+                                return liveOrder.paymentNumber;
+                              }
+                            }
+                            if (selectedLower === "bkash") return paymentSettings.bKash || "01700000000";
+                            if (selectedLower === "nagad") return paymentSettings.Nagad || "01900000000";
+                            if (selectedLower === "rocket") return paymentSettings.Rocket || "01500000000";
+                            return "01XXXXXXXXX";
+                          })()}
                         </span>
                         <span className="px-2 py-0.5 bg-indigo-600 text-white rounded text-[8px] font-black uppercase font-mono animate-pulse">
                           {selectedPaymentMethod} Personal

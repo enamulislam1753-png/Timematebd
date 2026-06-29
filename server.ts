@@ -3,6 +3,27 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
+import { GoogleGenAI } from "@google/genai";
+
+// Lazy-initialized Gemini Client to prevent crash on startup if API key is missing
+let aiClient: any = null;
+function getGeminiClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is missing on the server. Please add it via Settings > Secrets.");
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return aiClient;
+}
 
 // Temporary storage for verified phone and email OTP codes in server-side memory
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
@@ -188,6 +209,88 @@ async function startServer() {
     } catch (err: any) {
       console.warn("[OTP Verification Endpoint Notice]:", err?.message || err);
       res.status(500).json({ error: err.message || "Failed to verify OTP." });
+    }
+  });
+
+  // REST API: Advanced Conversational AI Chat Endpoint with Google Search Grounding
+  // Supports all languages, coding languages, science, math, and system context injection
+  app.post("/api/ai-chat", async (req, res) => {
+    try {
+      const { message, history, context } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ error: "message is required and must be a string." });
+      }
+
+      const client = getGeminiClient();
+      
+      // Construct conversational contents with history
+      const contents: any[] = [];
+      if (history && Array.isArray(history)) {
+        history.forEach((h: any) => {
+          if (h.role && h.text) {
+            contents.push({
+              role: h.role === "user" ? "user" : "model",
+              parts: [{ text: h.text }]
+            });
+          }
+        });
+      }
+      
+      // Add the latest message
+      contents.push({
+        role: "user",
+        parts: [{ text: message }]
+      });
+
+      // Customized System Instruction enforcing extreme intelligence, multi-language support,
+      // expert coding/science capacities, and awareness of the TimeMate BD concierge system.
+      const systemInstruction = `You are the official "TimeMate BD AI Assistant" (টাইমমেট বিডি এআই সহকারী) for TimeMate BD, the leading premium on-demand personal assistant and professional concierge service provider in Bangladesh.
+      
+About TimeMate BD Services:
+- Groceries Shopping (বাজার ও গ্রোসারি): Quick and customized local market shopping.
+- Standing in Queue / Waiting Support (লাইনে দাঁড়ানো / ওয়েটিং সাপোর্ট): Waiting at passport offices, banks, clinics, or ticket counters.
+- Banking Support (ব্যাংকিং কাজ): Document delivery, cheque deposit, or query assistance.
+- Utility Bill Payments (ইউটিলিটি বিল পরিশোধ): Smooth electricity, gas, water, or internet bill clearance.
+- Doctor Appointment Bookings (ডাক্তার অ্যাপয়েন্টমেন্ট): Reserving and assisting clinic schedules.
+- VIP Golden Express Courier (ভিআইপি গোল্ডেন এক্সপ্রেস কুরিয়ার): High-security, ultra-fast customized dispatch within and outside Dhaka.
+
+Context about the current user & system:
+${context || "No active order or user details available."}
+
+Guidelines:
+1. Answer the user's questions clearly, politely, and professionally.
+2. You are fully multilingual and support all languages. Always respond in the language used by the user (primarily Bengali/Bangla or English).
+3. You have comprehensive expert knowledge in all programming/coding languages (like Python, TypeScript, JavaScript, Rust, C++, etc.), scientific domains (Physics, Chemistry, Biology, Advanced Mathematics), humanities, history, and general knowledge.
+4. If a user asks about their order status, tracking, or account details, read and refer to the "Context about the current user & system" above to provide accurate real-time information!
+5. Feel free to explain code, solve scientific equations, write stories, or perform any cognitive task. Keep answers highly interactive, helpful, and structured.`;
+
+      console.log(`[AI Chat API] Initiating request to gemini-3.5-flash with search grounding...`);
+
+      const response = await client.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents,
+        config: {
+          systemInstruction,
+          tools: [{ googleSearch: {} }],
+        }
+      });
+
+      const replyText = response.text || "দুঃখিত, কোনো উত্তর জেনারেট করা সম্ভব হয়নি।";
+      
+      // Extract Google Search grounding sources to display beautifully to the user!
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const sources = groundingChunks ? groundingChunks.map((chunk: any) => ({
+        title: chunk.web?.title || "Web Source",
+        uri: chunk.web?.uri || "#"
+      })).filter((s: any) => s.uri !== "#") : [];
+
+      res.json({
+        text: replyText,
+        sources
+      });
+    } catch (err: any) {
+      console.error("[AI Chat API Error]:", err);
+      res.status(500).json({ error: err.message || "Internal AI Chat assistant failure." });
     }
   });
 
