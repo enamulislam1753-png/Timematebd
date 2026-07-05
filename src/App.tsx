@@ -35,6 +35,7 @@ import {
   deleteDoc,
   limit,
   increment,
+  arrayUnion,
 } from "firebase/firestore";
 import {
   Check,
@@ -604,6 +605,54 @@ const LocalVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) =>
     />
   );
 };
+
+const RemoteVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  if (!stream) {
+    return (
+      <div className="absolute inset-0 bg-slate-900 flex items-center justify-center">
+        <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest animate-pulse">কানেক্ট করা হচ্ছে...</span>
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      className="absolute inset-0 w-full h-full object-cover rounded-full"
+    />
+  );
+};
+
+const UserLiveMap: React.FC<{ lat: number; lng: number; apiKey: string }> = React.memo(({ lat, lng, apiKey }) => {
+  return (
+    <APIProvider apiKey={apiKey} version="weekly">
+      <div style={{ width: "100%", height: "100%" }}>
+        <Map
+          defaultCenter={{ lat, lng }}
+          defaultZoom={15}
+          center={{ lat, lng }}
+          mapId="DEMO_MAP_ID"
+          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+          style={{ width: "100%", height: "100%" }}
+        >
+          <AdvancedMarker position={{ lat, lng }}>
+            <Pin background="#4f46e5" glyphColor="#fff" borderColor="#3730a3" />
+          </AdvancedMarker>
+        </Map>
+      </div>
+    </APIProvider>
+  );
+});
+UserLiveMap.displayName = "UserLiveMap";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
@@ -2963,6 +3012,8 @@ export default function App() {
   const [localVideoOff, setLocalVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const [isSpeakerMode, setIsSpeakerMode] = useState(true);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
 
@@ -3013,6 +3064,11 @@ export default function App() {
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
       }
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+      setRemoteStream(null);
       return;
     }
 
@@ -3030,6 +3086,70 @@ export default function App() {
       stopRingtone();
     }
   }, [activeCallingRoom?.callState, user, guestSession, localStream]);
+
+  // WebRTC Signal Listener & Sync Engine
+  const lastStateCountRef = useRef({ callerCand: 0, receiverCand: 0, answerSet: false });
+
+  useEffect(() => {
+    const callState = activeCallingRoom?.callState;
+    if (!callState) {
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+      setRemoteStream(null);
+      lastStateCountRef.current = { callerCand: 0, receiverCand: 0, answerSet: false };
+      return;
+    }
+
+    const pc = pcRef.current;
+    if (!pc) return;
+
+    const currentUserId = user?.uid || guestSession?.uid;
+    const isCaller = callState.callerUid === currentUserId;
+
+    const syncSignals = async () => {
+      try {
+        // 1. If we are the Caller, watch for SDP answer to be set
+        if (isCaller && callState.callStatus === "connected" && callState.answer && !pc.remoteDescription && !lastStateCountRef.current.answerSet) {
+          const answer = JSON.parse(callState.answer);
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          lastStateCountRef.current.answerSet = true;
+        }
+
+        // 2. Add ICE candidates from the opposite side
+        if (isCaller && callState.receiverCandidates && callState.receiverCandidates.length > lastStateCountRef.current.receiverCand) {
+          const startIdx = lastStateCountRef.current.receiverCand;
+          for (let i = startIdx; i < callState.receiverCandidates.length; i++) {
+            try {
+              const candidate = JSON.parse(callState.receiverCandidates[i]);
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (candErr) {
+              console.warn("Error adding receiver ice candidate:", candErr);
+            }
+          }
+          lastStateCountRef.current.receiverCand = callState.receiverCandidates.length;
+        }
+
+        if (!isCaller && callState.callerCandidates && callState.callerCandidates.length > lastStateCountRef.current.callerCand) {
+          const startIdx = lastStateCountRef.current.callerCand;
+          for (let i = startIdx; i < callState.callerCandidates.length; i++) {
+            try {
+              const candidate = JSON.parse(callState.callerCandidates[i]);
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (candErr) {
+              console.warn("Error adding caller ice candidate:", candErr);
+            }
+          }
+          lastStateCountRef.current.callerCand = callState.callerCandidates.length;
+        }
+      } catch (err) {
+        console.error("WebRTC sync signal error:", err);
+      }
+    };
+
+    syncSignals();
+  }, [activeCallingRoom?.callState, user, guestSession]);
   const [employeeTrackComment, setEmployeeTrackComment] = useState<{ [orderId: string]: string }>({});
   const [adminSearch, setAdminSearch] = useState("");
   const [adminStatusFilter, setAdminStatusFilter] = useState("");
@@ -5563,8 +5683,9 @@ export default function App() {
       if (!hasPermBefore) {
         addToast("ডিভাইস মাইক্রোফোন ও ক্যামেরা পারমিশন চাওয়া হচ্ছে...", "success");
       }
+      let stream: MediaStream | null = null;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: type === "video"
         });
@@ -5574,7 +5695,6 @@ export default function App() {
         console.error("Mic/Camera Access Denied:", perErr);
         localStorage.removeItem("timemate_device_perm_ok");
         addToast("মাইক্রোফোন বা ক্যামেরা ব্যবহারের পারমিশন দিন, নতুবা ফোন কাজ করবে না!", "error");
-        // Still let the call go through with a null local stream so they can test/bypass
       }
 
       const currentId = user?.uid || guestSession?.uid;
@@ -5584,6 +5704,42 @@ export default function App() {
 
       const phone = profile?.phone || guestSession?.phone || "N/A";
       const email = user?.email || "guest@timemate.bd";
+
+      let offerSDP = "";
+      if (stream) {
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" }
+          ]
+        });
+        pcRef.current = pc;
+        setRemoteStream(null);
+
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream!);
+        });
+
+        pc.ontrack = (event) => {
+          if (event.streams && event.streams[0]) {
+            setRemoteStream(event.streams[0]);
+          }
+        };
+
+        pc.onicecandidate = async (event) => {
+          if (event.candidate) {
+            const candJSON = JSON.stringify(event.candidate.toJSON());
+            await updateDoc(doc(db, "support_rooms", targetId), {
+              "callState.callerCandidates": arrayUnion(candJSON)
+            });
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        offerSDP = JSON.stringify(offer);
+      }
 
       await setDoc(doc(db, "support_rooms", targetId), {
         id: targetId,
@@ -5599,7 +5755,10 @@ export default function App() {
           callerName: callerName,
           callType: type,
           callStatus: "ringing",
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          offer: offerSDP,
+          callerCandidates: [],
+          receiverCandidates: []
         }
       }, { merge: true });
 
@@ -5624,8 +5783,9 @@ export default function App() {
       if (!hasPermBefore) {
         addToast("ডিভাইস মাইক্রোফোন ও ক্যামেরা পারমিশন চাওয়া হচ্ছে...", "success");
       }
+      let stream: MediaStream | null = null;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
           video: callType === "video"
         });
@@ -5637,9 +5797,48 @@ export default function App() {
         addToast("কল রিসিভ করার জন্য ডিভাইসের পারমিশন আবশ্যক!", "error");
       }
 
+      let answerSDP = "";
+      if (stream && activeCallingRoom?.callState?.offer) {
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" }
+          ]
+        });
+        pcRef.current = pc;
+        setRemoteStream(null);
+
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream!);
+        });
+
+        pc.ontrack = (event) => {
+          if (event.streams && event.streams[0]) {
+            setRemoteStream(event.streams[0]);
+          }
+        };
+
+        pc.onicecandidate = async (event) => {
+          if (event.candidate) {
+            const candJSON = JSON.stringify(event.candidate.toJSON());
+            await updateDoc(doc(db, "support_rooms", targetId), {
+              "callState.receiverCandidates": arrayUnion(candJSON)
+            });
+          }
+        };
+
+        const offer = JSON.parse(activeCallingRoom.callState.offer);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        answerSDP = JSON.stringify(answer);
+      }
+
       await updateDoc(doc(db, "support_rooms", targetId), {
         "callState.callStatus": "connected",
-        "callState.connectedAt": Date.now()
+        "callState.connectedAt": Date.now(),
+        "callState.answer": answerSDP
       });
       addToast("কল রিসিভ করা হয়েছে!", "success");
     } catch (err) {
@@ -5660,6 +5859,11 @@ export default function App() {
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
       }
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+      setRemoteStream(null);
       addToast("কল সমাপ্ত করা হয়েছে।", "success");
     } catch (err) {
       console.error("Call disconnect failed:", err);
@@ -6880,11 +7084,11 @@ export default function App() {
                   )}
 
                   <div className={`w-full h-full rounded-full bg-gradient-to-br from-indigo-500 via-purple-600 to-rose-500 p-1 flex items-center justify-center shadow-2xl relative overflow-hidden transition-all ${localVideoOff && activeCallingRoom.callState.callStatus === "connected" ? "opacity-60" : "scale-105"}`}>
-                    {activeCallingRoom.callState.callType === "video" && activeCallingRoom.callState.callStatus === "connected" && !localVideoOff ? (
-                      /* Real Local Camera Preview feed from localStream */
+                    {activeCallingRoom.callState.callType === "video" && activeCallingRoom.callState.callStatus === "connected" ? (
+                      /* Real Remote Camera Preview feed from remoteStream */
                       <div className="absolute inset-0 w-full h-full bg-slate-900">
-                        <LocalVideoView stream={localStream} />
-                        <span className="absolute bottom-1 right-2 text-[6px] font-black uppercase text-indigo-300 bg-black/60 px-1.5 py-0.5 rounded-full z-20">LIVE</span>
+                        <RemoteVideoView stream={remoteStream} />
+                        <span className="absolute bottom-1 right-2 text-[6px] font-black uppercase text-indigo-300 bg-black/60 px-1.5 py-0.5 rounded-full z-20">REMOTE LIVE</span>
                       </div>
                     ) : (
                       /* Standard Avatar Initial letter */
@@ -6894,11 +7098,17 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Secondary floating Avatar representing the other side of call */}
-                  <div className="absolute -bottom-2 -right-2 w-10 h-10 rounded-full bg-[#1e293b] border-2 border-white/10 flex items-center justify-center shadow-lg overflow-hidden shrink-0">
-                    <span className="text-xs font-black text-gray-400 uppercase">
-                      {activeCallingRoom?.customerName?.[0] || "C"}
-                    </span>
+                  {/* Secondary floating Avatar / Local Camera feed */}
+                  <div className="absolute -bottom-2 -right-2 w-12 h-12 rounded-full bg-[#1e293b] border-2 border-indigo-500 flex items-center justify-center shadow-lg overflow-hidden shrink-0 z-20">
+                    {activeCallingRoom.callState.callType === "video" && activeCallingRoom.callState.callStatus === "connected" && !localVideoOff ? (
+                      <div className="w-full h-full relative bg-slate-950">
+                        <LocalVideoView stream={localStream} />
+                      </div>
+                    ) : (
+                      <span className="text-xs font-black text-indigo-400 uppercase font-sans">
+                        {activeCallingRoom?.customerName?.[0] || "C"}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -7030,6 +7240,20 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              {/* Remote Audio Track Player to transmit voice bidirectional */}
+              {remoteStream && (
+                <audio
+                  ref={(el) => {
+                    if (el) {
+                      el.srcObject = remoteStream;
+                      el.volume = isPhoneMode ? 0.25 : 1.0;
+                    }
+                  }}
+                  autoPlay
+                  playsInline
+                />
+              )}
             </motion.div>
           </div>
         )}
@@ -7111,24 +7335,7 @@ export default function App() {
                   const lat = selectedUserLocation.location?.lat || 23.8103;
                   const lng = selectedUserLocation.location?.lng || 90.4125;
 
-                  return (
-                    <APIProvider apiKey={API_KEY} version="weekly">
-                      <div style={{ width: "100%", height: "100%" }}>
-                        <Map
-                          defaultCenter={{ lat, lng }}
-                          defaultZoom={15}
-                          center={{ lat, lng }}
-                          mapId="DEMO_MAP_ID"
-                          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-                          style={{ width: "100%", height: "100%" }}
-                        >
-                          <AdvancedMarker position={{ lat, lng }}>
-                            <Pin background="#4f46e5" glyphColor="#fff" borderColor="#3730a3" />
-                          </AdvancedMarker>
-                        </Map>
-                      </div>
-                    </APIProvider>
-                  );
+                  return <UserLiveMap lat={lat} lng={lng} apiKey={API_KEY} />;
                 })()}
               </div>
 
