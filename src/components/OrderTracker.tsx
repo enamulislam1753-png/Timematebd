@@ -203,7 +203,12 @@ export default function OrderTracker({
               await updateDoc(doc(db, "orders", order.id), updates);
             }
           } catch (e) {
-            console.error("Failed to update location inside Firestore:", e);
+            const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+            if (isOffline) {
+              console.warn("Client is offline. Firestore queued the location update locally.");
+            } else {
+              console.error("Failed to update location inside Firestore:", e);
+            }
           }
         },
         (error) => {
@@ -213,7 +218,7 @@ export default function OrderTracker({
         {
           enableHighAccuracy: true,
           timeout: 15000,
-          maximumAge: 5000
+          maximumAge: 0
         }
       );
     } else {
@@ -293,6 +298,7 @@ export default function OrderTracker({
 
   // Dynamic Leaflet Loader and Controller
   const [leafletLoaded, setLeafletLoaded] = useState(false);
+  const [is3D, setIs3D] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<{ [key: string]: any }>({});
@@ -381,7 +387,15 @@ export default function OrderTracker({
 
     // Create premium circular glowing SVG divIcons with real pulse animations (Foodpanda styled)
     const warehouseIcon = L.divIcon({
-      html: `
+      html: is3D ? `
+        <div class="relative flex flex-col items-center justify-center" style="height: 120px; margin-top: -100px; margin-left: -10px;">
+          <div class="w-10 h-10 rounded-full bg-indigo-600 border-2 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.85)] flex items-center justify-center text-white text-base animate-bounce" style="animation-duration: 3s;">
+            🏠
+          </div>
+          <div class="w-0.5 h-12 bg-gradient-to-b from-cyan-400 via-cyan-400/30 to-transparent border-dashed border-l border-cyan-400/50 my-1"></div>
+          <div class="w-6 h-2 rounded-full bg-indigo-500/40 border border-indigo-400/80 animate-ping"></div>
+        </div>
+      ` : `
         <div class="relative flex items-center justify-center">
           <div class="absolute w-8 h-8 rounded-full bg-indigo-500/20 animate-ping"></div>
           <div class="w-10 h-10 rounded-full bg-indigo-600 border-2 border-white shadow-lg flex items-center justify-center text-white text-base">
@@ -390,12 +404,20 @@ export default function OrderTracker({
         </div>
       `,
       className: "custom-leaflet-marker",
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
+      iconSize: is3D ? [40, 120] : [40, 40],
+      iconAnchor: is3D ? [20, 110] : [20, 20]
     });
 
     const customerIcon = L.divIcon({
-      html: `
+      html: is3D ? `
+        <div class="relative flex flex-col items-center justify-center" style="height: 120px; margin-top: -100px; margin-left: -10px;">
+          <div class="w-10 h-10 rounded-full bg-emerald-600 border-2 border-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.85)] flex items-center justify-center text-white text-base animate-bounce" style="animation-duration: 3s; animation-delay: 0.5s;">
+            👤
+          </div>
+          <div class="w-0.5 h-12 bg-gradient-to-b from-emerald-400 via-emerald-400/30 to-transparent border-dashed border-l border-emerald-400/50 my-1"></div>
+          <div class="w-6 h-2 rounded-full bg-emerald-500/40 border border-emerald-400/80 animate-ping"></div>
+        </div>
+      ` : `
         <div class="relative flex items-center justify-center">
           <div class="absolute w-8 h-8 rounded-full bg-emerald-500/20 animate-ping"></div>
           <div class="w-10 h-10 rounded-full bg-emerald-600 border-2 border-white shadow-lg flex items-center justify-center text-white text-base">
@@ -404,12 +426,20 @@ export default function OrderTracker({
         </div>
       `,
       className: "custom-leaflet-marker",
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
+      iconSize: is3D ? [40, 120] : [40, 40],
+      iconAnchor: is3D ? [20, 110] : [20, 20]
     });
 
     const riderIcon = L.divIcon({
-      html: `
+      html: is3D ? `
+        <div class="relative flex flex-col items-center justify-center" style="height: 120px; margin-top: -100px; margin-left: -12px;">
+          <div class="w-11 h-11 rounded-full bg-[#ff2e56] border-2 border-rose-350 shadow-[0_0_15px_rgba(255,46,86,0.85)] flex items-center justify-center text-white text-lg animate-bounce" style="animation-duration: 2s;">
+            🏍️
+          </div>
+          <div class="w-0.5 h-12 bg-gradient-to-b from-rose-400 via-rose-400/30 to-transparent border-dashed border-l border-rose-400/50 my-1"></div>
+          <div class="w-6 h-2 rounded-full bg-rose-500/40 border border-rose-400/80 animate-pulse"></div>
+        </div>
+      ` : `
         <div class="relative flex items-center justify-center">
           <div class="absolute w-10 h-10 rounded-full bg-rose-500/30 animate-pulse"></div>
           <div class="absolute w-12 h-12 rounded-full bg-rose-500/25 animate-ping" style="animation-duration: 2s"></div>
@@ -419,8 +449,8 @@ export default function OrderTracker({
         </div>
       `,
       className: "custom-leaflet-marker",
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
+      iconSize: is3D ? [44, 120] : [44, 44],
+      iconAnchor: is3D ? [22, 110] : [22, 22]
     });
 
     // Remove existing markers if present to refresh correctly
@@ -457,7 +487,7 @@ export default function OrderTracker({
       dashArray: "10, 10"
     }).addTo(mapInstance);
 
-  }, [leafletLoaded, mapCenterCoords.lat, mapCenterCoords.lng, isRiderAssigned, riderCoords?.lat, riderCoords?.lng, customerCoords.lat, customerCoords.lng, hasValidKey]);
+  }, [leafletLoaded, mapCenterCoords.lat, mapCenterCoords.lng, isRiderAssigned, riderCoords?.lat, riderCoords?.lng, customerCoords.lat, customerCoords.lng, hasValidKey, is3D]);
 
   return (
     <div id="realtime-order-tracking-dashboard" className="bg-slate-50 dark:bg-slate-900/40 rounded-3xl p-6 border border-gray-200/60 dark:border-white/5 space-y-6">
@@ -533,23 +563,58 @@ export default function OrderTracker({
         </div>
       )}
 
+      <style>{`
+        @keyframes radar-scan {
+          0% { top: 0%; opacity: 0.15; }
+          50% { top: 100%; opacity: 0.85; }
+          100% { top: 0%; opacity: 0.15; }
+        }
+      `}</style>
+
       {/* Interactive Map Panel */}
       <div className="relative bg-[#ffffff] dark:bg-[#0b1329] border border-gray-150 dark:border-white/10 rounded-[2rem] overflow-hidden shadow-inner h-80 sm:h-96 flex flex-col justify-between">
+        {/* Floating 3D/2D Toggle Button */}
+        <button
+          onClick={() => setIs3D(!is3D)}
+          className={`absolute top-3 right-3 z-30 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md border pointer-events-auto cursor-pointer ${
+            is3D 
+              ? "bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 text-white border-cyan-400 animate-pulse" 
+              : "bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-white/10 hover:bg-gray-100"
+          }`}
+        >
+          <span>{is3D ? "🛰️ ৩ডি ট্র্যাকার: সক্রিয়" : "📡 ৩ডি মোড"}</span>
+        </button>
+
         {!hasValidKey ? (
           /* High-Performance Standard Leaflet Map with Real-time GPS synchronization */
-          <div className="w-full h-full relative z-20">
+          <div className="w-full h-full relative z-20 overflow-hidden rounded-[2rem]">
             {!leafletLoaded ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-950/40 p-4">
                 <Compass className="animate-spin text-indigo-550 mb-2" size={32} />
                 <span className="text-xs font-bold text-gray-500 dark:text-gray-400">লাইভ ট্র্যাকিং ম্যাপ লোড হচ্ছে...</span>
               </div>
             ) : (
-              <div ref={mapContainerRef} className="w-full h-full relative" />
+              <div 
+                ref={mapContainerRef} 
+                className="w-full h-full relative" 
+                style={{
+                  transform: is3D ? "perspective(1200px) rotateX(55deg) rotateY(0deg) rotateZ(-12deg) scale(1.15)" : "none",
+                  transformOrigin: "center center",
+                  transition: "transform 1s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                }}
+              />
             )}
           </div>
         ) : (
-          /* Actual High-End Google Maps Panel */
-          <div className="w-full h-full relative">
+          /* Actual High-End Google Maps Panel with CSS 3D support */
+          <div 
+            className="w-full h-full relative"
+            style={{
+              transform: is3D ? "perspective(1200px) rotateX(55deg) rotateY(0deg) rotateZ(-12deg) scale(1.15)" : "none",
+              transformOrigin: "center center",
+              transition: "transform 1s cubic-bezier(0.2, 0.8, 0.2, 1)",
+            }}
+          >
             <APIProvider apiKey={API_KEY} version="weekly">
               <Map
                 center={mapCenterCoords}
@@ -576,6 +641,54 @@ export default function OrderTracker({
                 )}
               </Map>
             </APIProvider>
+          </div>
+        )}
+
+        {/* Futuristic 3D Holographic HUD overlay */}
+        {is3D && (
+          <div className="absolute inset-0 z-25 pointer-events-none flex flex-col justify-between p-4 bg-indigo-950/10 border-2 border-cyan-500/25 rounded-[2rem] overflow-hidden">
+            {/* Corner sci-fi line decorations */}
+            <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-cyan-400"></div>
+            <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-cyan-400"></div>
+            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-cyan-400"></div>
+            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400"></div>
+
+            {/* Scanning Laser Beam Overlay */}
+            <div className="absolute inset-x-0 h-[2px] bg-cyan-400/40 top-0 shadow-[0_0_15px_#22d3ee] animate-[radar-scan_4s_linear_infinite]"></div>
+
+            {/* Altitude & Telemetry Readouts */}
+            <div className="flex justify-between items-start">
+              <div className="bg-slate-950/85 backdrop-blur-md px-3 py-2 rounded-xl border border-cyan-500/30 text-[9px] font-mono text-cyan-400 space-y-0.5">
+                <p className="font-extrabold flex items-center gap-1 text-[8px]">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping"></span>
+                  RADAR SYSTEM LOCKED
+                </p>
+                <p>LAT: {mapCenterCoords.lat.toFixed(5)}</p>
+                <p>LNG: {mapCenterCoords.lng.toFixed(5)}</p>
+                <p>PITCH: 55° | TILT: -12°</p>
+              </div>
+              
+              <div className="bg-slate-950/85 backdrop-blur-md px-3 py-2 rounded-xl border border-cyan-500/30 text-[9px] font-mono text-cyan-400 text-right space-y-0.5">
+                <p className="font-black text-indigo-300 text-[8px]">🛰️ 3D PERSPECTIVE GRID</p>
+                <p className="animate-pulse">SIGNAL: 100% (HIGH ACCURACY)</p>
+                <p>ALTITUDE: 150m (FLOATING)</p>
+                <p>FPS: 60 / GPU-ACCEL</p>
+              </div>
+            </div>
+
+            {/* Center Holographic Target Reticle */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+              <div className="w-16 h-16 rounded-full border-2 border-dashed border-cyan-400/30 animate-spin" style={{ animationDuration: "12s" }}></div>
+              <div className="absolute w-8 h-8 rounded-full border border-rose-500/40 animate-ping"></div>
+              <div className="absolute w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]"></div>
+            </div>
+
+            {/* Bottom Tech Grid Bar */}
+            <div className="bg-slate-950/90 backdrop-blur-md px-4 py-1.5 rounded-xl border border-cyan-500/30 text-[9px] font-mono text-cyan-400 w-fit mx-auto text-center flex items-center gap-2">
+              <span className="animate-pulse text-xs text-cyan-400">●</span>
+              <span>৩ডি ট্র্যাকার চালু আছে: লাইভ জিপিএস থ্রিডি মোড সক্রিয়</span>
+              <span className="px-1 bg-cyan-950 text-cyan-300 rounded border border-cyan-500/30 text-[8px] font-sans">ACTIVE</span>
+            </div>
           </div>
         )}
 

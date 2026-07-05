@@ -127,12 +127,29 @@ service cloud.firestore {
       allow create: if (isSignedIn() && isValidUser(incoming()) && userId == request.auth.uid) || isAdmin() || isStaff();
       allow update: if isAdmin() || isStaff() || (
         isOwner(userId) && !isBanned() &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fullName', 'phone', 'email', 'role', 'address', 'birthDate', 'customBadge', 'timePoints', 'lastBirthClaimYear', 'lastClaimDate', 'photoURL', 'lastMysteryBoxClaim', 'referralCode', 'referredBy', 'referredByCode', 'mobileVerified', 'lastSpinDate', 'location']) &&
-        (incoming().role == existing().role)
-      ) || (
-        isSignedIn() && !isBanned() &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['timePoints']) &&
-        incoming().timePoints > existing().timePoints
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fullName', 'phone', 'email', 'role', 'address', 'birthDate', 'customBadge', 'timePoints', 'lastBirthClaimYear', 'lastClaimDate', 'photoURL', 'lastMysteryBoxClaim', 'referralCode', 'referredBy', 'referredByCode', 'mobileVerified', 'lastSpinDate', 'location', 'lastShareDate']) &&
+        (incoming().role == existing().role) &&
+        (!('timePoints' in incoming().diff(existing()).affectedKeys()) || (
+          incoming().timePoints < (('timePoints' in existing()) ? existing().timePoints : 0) ||
+          (
+            incoming().timePoints == (('timePoints' in existing()) ? existing().timePoints : 0) + 50 &&
+            'lastClaimDate' in incoming().diff(existing()).affectedKeys() &&
+            incoming().lastClaimDate >= (('lastClaimDate' in existing()) ? existing().lastClaimDate : 0) + 23 * 60 * 60 * 1000
+          ) ||
+          (
+            incoming().timePoints <= (('timePoints' in existing()) ? existing().timePoints : 0) + 200 &&
+            'lastSpinDate' in incoming().diff(existing()).affectedKeys() &&
+            incoming().lastSpinDate != (('lastSpinDate' in existing()) ? existing().lastSpinDate : '')
+          ) ||
+          (
+            incoming().timePoints == (('timePoints' in existing()) ? existing().timePoints : 0) + 50 &&
+            'lastShareDate' in incoming().diff(existing()).affectedKeys() &&
+            incoming().lastShareDate >= (('lastShareDate' in existing()) ? existing().lastShareDate : 0) + 23 * 60 * 60 * 1000
+          ) ||
+          (
+            incoming().timePoints <= (('timePoints' in existing()) ? existing().timePoints : 0) + 2000
+          )
+        ))
       );
       allow delete: if isAdmin() || isStaff();
     }

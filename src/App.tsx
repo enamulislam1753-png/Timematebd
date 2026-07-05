@@ -1894,19 +1894,46 @@ export default function App() {
   };
 
   const shareAppToEarn = async () => {
-    if (!user) return;
+    if (!user || !profile) return;
+    const lastShare = profile.lastShareDate || 0;
+    const now = Date.now();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+
+    if (now - lastShare < twentyFourHours) {
+      const waitTime = Math.ceil(
+        (twentyFourHours - (now - lastShare)) / (60 * 60 * 1000)
+      );
+      addToast(
+        `আপনি ইতিমধ্যে আজকে শেয়ার বোনাস সংগ্রহ করেছেন। আবার বোনাস পেতে আরও ${waitTime} ঘণ্টা অপেক্ষা করুন।`,
+        "error"
+      );
+      return;
+    }
+
     const shareText =
       "টাইমমেট বিডি অ্যাপ দিয়ে পার্সেল ও সার্ভিস বুক করুন খুব সহজে! এখনই রেজিস্টার করে সরাসরি ১০০ ফ্রি টাইম কয়েন বোনাস জিতে নিন!";
     const shareUrl = "https://timematebd.com";
 
     try {
+      const currentCoins = profile.timePoints || 0;
       if (navigator.share) {
         await navigator.share({
           title: "টাইমমেট বিডি 🇧🇩",
           text: shareText,
           url: shareUrl,
         });
-        await awardTimeCoins(50, "অ্যাপ শেয়ার বোনাস");
+        await updateDoc(doc(db, "users", user.uid), {
+          timePoints: currentCoins + 50,
+          lastShareDate: now,
+        });
+        addToast("🎉 অ্যাপ শেয়ার বোনাস সফলভাবে যোগ হয়েছে!", "success");
+        playSuccessSound();
+        await createNotification(
+          user.uid,
+          "TIME COIN GIFT 🪙",
+          "আপনার অর্জিত ৫০ টাইম কয়েন সফলভাবে লোড করা হয়েছে! (কারণ: অ্যাপ শেয়ার বোনাস)",
+          "promo"
+        );
       } else {
         // Fallback: Copy to clipboard
         await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
@@ -1914,7 +1941,18 @@ export default function App() {
           "শেয়ারিং লিংক আপনার ক্লিপবোর্ডে কপি করা হয়েছে! বন্ধুদের সাথে শেয়ার করে ফ্রি ৫০ কয়েন সংগ্রহ করুন।",
           "success",
         );
-        await awardTimeCoins(50, "অ্যাপ শেয়ার বোনাস (লিংক কপি)");
+        await updateDoc(doc(db, "users", user.uid), {
+          timePoints: currentCoins + 50,
+          lastShareDate: now,
+        });
+        addToast("🎉 অ্যাপ শেয়ার বোনাস সফলভাবে যোগ হয়েছে!", "success");
+        playSuccessSound();
+        await createNotification(
+          user.uid,
+          "TIME COIN GIFT 🪙",
+          "আপনার অর্জিত ৫০ টাইম কয়েন সফলভাবে লোড করা হয়েছে! (কারণ: অ্যাপ শেয়ার বোনাস)",
+          "promo"
+        );
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -2463,6 +2501,87 @@ export default function App() {
     profileRef.current = profile;
   }, [profile]);
 
+  // Helper to translate address components into Bengali
+  const translateAddressToBangla = (engAddr: string): string => {
+    if (!engAddr) return "";
+    const dict: { [key: string]: string } = {
+      "Dhaka": "ঢাকা",
+      "Bangladesh": "বাংলাদেশ",
+      "Road": "রোড",
+      "Avenue": "এভিনিউ",
+      "Sector": "সেক্টর",
+      "Block": "ব্লক",
+      "Lane": "লেন",
+      "House": "হাউজ",
+      "Flat": "ফ্ল্যাট",
+      "Floor": "তলা",
+      "Street": "রাস্তা",
+      "Mirpur": "মিরপুর",
+      "Uttara": "উত্তরা",
+      "Gulshan": "গুলশান",
+      "Banani": "বনানী",
+      "Dhanmondi": "ধানমণ্ডি",
+      "Badda": "বাড্ডা",
+      "Motijheel": "মতিঝিল",
+      "Tejgaon": "তেজগাঁও",
+      "Mohakhali": "মহাখালী",
+      "Khilgaon": "খিলগাঁও",
+      "Rampura": "রামপুরা",
+      "Pallabi": "পল্লবী",
+      "Cantonment": "ক্যান্টনমেন্ট",
+      "Chittagong": "চট্টগ্রাম",
+      "Sylhet": "সিলেট",
+      "Rajshahi": "রাজশাহী",
+      "Khulna": "খুলনা",
+      "Barisal": "বরিশাল",
+      "Rangpur": "রংপুর",
+      "Mymensingh": "ময়মনসিংহ",
+      "GaziPur": "গাজীপুর",
+      "Narayanganj": "নারায়ণগঞ্জ",
+      "Savar": "সাভার",
+      "Tongi": "টঙ্গী",
+      "Post Office": "পোস্ট অফিস",
+      "District": "জেলা",
+      "Thana": "থানা",
+      "Division": "বিভাগ",
+      "Union": "ইউনিয়ন",
+      "Village": "গ্রাম",
+      "Area": "এলাকা",
+      "City": "শহর",
+      "Sub-district": "উপজেলা",
+      "Upazila": "উপজেলা",
+      "Airport": "এয়ারপোর্ট",
+      "Railway Station": "রেলওয়ে স্টেশন",
+      "Hospital": "হাসপাতাল",
+      "School": "স্কুল",
+      "College": "কলেজ",
+      "University": "বিশ্ববিদ্যালয়",
+      "Market": "মার্কেট",
+      "Plaza": "প্লাজা",
+      "Shopping": "শপিং",
+      "Center": "সেন্টার",
+      "Bazar": "বাজার",
+      "Karwan Bazar": "কাওরান বাজার",
+      "North": "উত্তর",
+      "South": "দক্ষিণ",
+      "East": "পূর্ব",
+      "West": "পশ্চিম"
+    };
+
+    let translated = engAddr;
+    Object.keys(dict).forEach((key) => {
+      const regex = new RegExp(`\\b${key}\\b`, "gi");
+      translated = translated.replace(regex, dict[key]);
+    });
+
+    const digitMap: { [key: string]: string } = {
+      "0": "০", "1": "১", "2": "২", "3": "৩", "4": "৪",
+      "5": "৫", "6": "৬", "7": "৭", "8": "৮", "9": "৯"
+    };
+    translated = translated.replace(/[0-9]/g, (match) => digitMap[match] || match);
+    return translated;
+  };
+
   // Continuous Location Tracking & Reverse Geocoding
   useEffect(() => {
     if (!user) return;
@@ -2495,19 +2614,44 @@ export default function App() {
       lastUpdateTimestamp = now;
 
       let addressName = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-      try {
-        const emailParam = user.email ? `&email=${encodeURIComponent(user.email)}` : "";
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=bn,en${emailParam}`
-        );
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.display_name) {
-            addressName = data.display_name;
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        try {
+          const emailParam = user.email ? `&email=${encodeURIComponent(user.email)}` : "";
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=bn,en${emailParam}`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.display_name) {
+              addressName = translateAddressToBangla(data.display_name);
+            }
           }
+        } catch (geocodeErr) {
+          console.warn("Reverse geocoding fetch error:", geocodeErr);
         }
-      } catch (geocodeErr) {
-        console.error("Reverse geocoding error:", geocodeErr);
+      } else {
+        console.log("Offline: Bypassed Nominatim reverse geocoding fetch.");
+      }
+
+      const currentNow = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const existingHistory = profileRef.current?.locationHistory || [];
+      const validHistory = existingHistory.filter((item: any) => {
+        const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+        return (currentNow - itemTime) < oneDayMs;
+      });
+
+      const newHistoryEntry = {
+        lat,
+        lng,
+        address: addressName,
+        updatedAt: new Date().toISOString()
+      };
+
+      const lastPoint = validHistory[0];
+      let updatedHistory = [...validHistory];
+      if (!lastPoint || Math.abs(lastPoint.lat - lat) > 0.0001 || Math.abs(lastPoint.lng - lng) > 0.0001) {
+        updatedHistory = [newHistoryEntry, ...validHistory].slice(0, 3);
       }
 
       try {
@@ -2518,7 +2662,8 @@ export default function App() {
             lng,
             address: addressName,
             updatedAt: new Date().toISOString()
-          }
+          },
+          locationHistory: updatedHistory
         });
       } catch (dbErr) {
         try {
@@ -2529,7 +2674,8 @@ export default function App() {
               lng,
               address: addressName,
               updatedAt: new Date().toISOString()
-            }
+            },
+            locationHistory: updatedHistory
           }, { merge: true });
         } catch (setErr) {
           console.error("Failed to write coordinates to DB:", setErr);
@@ -2544,12 +2690,13 @@ export default function App() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(successCallback, errorCallback, {
         enableHighAccuracy: true,
-        timeout: 10000
+        timeout: 10000,
+        maximumAge: 0
       });
       watchId = navigator.geolocation.watchPosition(successCallback, errorCallback, {
         enableHighAccuracy: true,
         timeout: 20000,
-        maximumAge: 60050
+        maximumAge: 0
       });
     }
 
@@ -3663,7 +3810,12 @@ export default function App() {
             }
           }
         } catch (err) {
-          console.error("Error checking/initializing profile:", err);
+          const isOfflineErr = typeof navigator !== "undefined" && !navigator.onLine;
+          if (isOfflineErr) {
+            console.warn("Client is offline. Firestore will load profile using persistent local cache.");
+          } else {
+            console.error("Error checking/initializing profile:", err);
+          }
         }
 
         unsubscribeProfile = onSnapshot(
@@ -6899,7 +7051,7 @@ export default function App() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 30 }}
               transition={{ type: "spring", damping: 25, stiffness: 350 }}
-              className="bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden w-full max-w-2xl relative z-10 shadow-2xl border border-gray-100 dark:border-white/10 flex flex-col h-[580px]"
+              className="bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden w-full max-w-2xl relative z-10 shadow-2xl border border-gray-100 dark:border-white/10 flex flex-col h-[660px] max-h-[90vh]"
             >
               {/* Header */}
               <div className="p-6 border-b border-gray-100 dark:border-white/5 flex items-center justify-between bg-gray-50/30 dark:bg-slate-950/20">
@@ -6981,7 +7133,7 @@ export default function App() {
               </div>
 
               {/* Footer Address Info */}
-              <div className="p-6 border-t border-gray-100 dark:border-white/5 bg-gray-50/20 dark:bg-slate-950/35 space-y-2 font-sans">
+              <div className="p-6 border-t border-gray-100 dark:border-white/5 bg-gray-50/20 dark:bg-slate-950/35 space-y-2 font-sans overflow-y-auto max-h-[240px] no-scrollbar">
                 <div className="text-xs font-extrabold text-[#4f46e5] dark:text-indigo-400 flex items-center gap-1.5">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
@@ -7002,6 +7154,33 @@ export default function App() {
                     অক্ষাংশ (Lat): {selectedUserLocation.location?.lat || "N/A"} | দ্রাঘিমাংশ (Lng): {selectedUserLocation.location?.lng || "N/A"}
                   </p>
                 </div>
+                {selectedUserLocation.locationHistory && selectedUserLocation.locationHistory.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-dashed border-gray-200 dark:border-white/10 space-y-2">
+                    <p className="text-[11px] font-black text-[#4f46e5] dark:text-indigo-400 uppercase tracking-wider">
+                      🕒 সর্বশেষ ৩টি অবস্থানের ইতিহাস (গত ২৪ ঘণ্টা):
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {selectedUserLocation.locationHistory.filter((item: any) => {
+                        const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+                        return (Date.now() - itemTime) < 24 * 60 * 60 * 1000;
+                      }).map((hist: any, hIdx: number) => (
+                        <div key={hIdx} className="bg-white dark:bg-slate-950/40 border border-gray-100 dark:border-white/5 p-2.5 rounded-xl flex items-start gap-2 text-xs">
+                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-55 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 text-[10px] font-black shrink-0">
+                            {hIdx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <p className="font-bold text-gray-700 dark:text-gray-300 leading-relaxed">
+                              📍 {hist.address}
+                            </p>
+                            <p className="text-[9px] text-gray-450 font-mono">
+                              Lat: {hist.lat?.toFixed(5)} | Lng: {hist.lng?.toFixed(5)} • {hist.updatedAt ? new Date(hist.updatedAt).toLocaleTimeString() : ""}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
@@ -11973,77 +12152,129 @@ export default function App() {
                   </p>
                 </div>
                 <div className="flex bg-white dark:bg-white/5 p-1.5 rounded-[1.5rem] shadow-sm border border-gray-100 dark:border-white/5 overflow-x-auto no-scrollbar">
-                  {[
-                    ...(isSuperAdmin ? ["dashboard"] : []),
-                    "ai_copilot",
-                    "orders",
-                    "order-analytics",
-                    "reminders",
-                    "live-chat",
-                    "app-files",
-                    "services",
-                    "employees",
-                    ...(isSuperAdmin ? ["all_users"] : []),
-                    "messages",
-                    "reviews",
-                    ...(isSuperAdmin ? ["coupons", "coins", "lottery"] : []),
-                    "news",
-                    ...(isSuperAdmin ? ["reports"] : []),
-                    ...(isSuperAdmin ? ["credentials"] : []),
-                    "security",
-                  ].map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setAdminTab(tab)}
-                      className={`px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all focus:outline-none whitespace-nowrap ${adminTab === tab ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-gray-650"}`}
-                    >
-                      {tab === "dashboard"
-                        ? "ড্যাশবোর্ড"
-                        : tab === "ai_copilot"
-                          ? "এআই অ্যাসিস্ট্যান্ট 🤖"
-                          : tab === "orders"
-                            ? "অর্ডারস"
-                          : tab === "order-analytics"
-                            ? "হাইইস্ট অর্ডার আইডি 📊"
-                            : tab === "reminders"
-                              ? "ইউজার রিমাইন্ডারস ⏰"
-                              : tab === "live-chat" ? (
-                                  <span className="flex items-center gap-1">
-                                    গ্রাহক লাইভ চ্যাট 💬
-                                    {totalUnreadRoomsCount > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse">
-                                        {totalUnreadRoomsCount}
+                  {(() => {
+                    const pendingOrdersCount = orders.filter((o) => o.status === "নতুন" || o.status === "প্রক্রিয়াধীন").length;
+                    const pendingCoinRequestsCount = coinRequests.filter((r) => r.status !== "সম্পন্ন" && r.status !== "বাতিল").length;
+                    const pendingEmployeesCount = employees.filter((e) => e.status !== "অনুমোদিত" && e.status !== "বাতিল").length;
+
+                    return [
+                      ...(isSuperAdmin ? ["dashboard"] : []),
+                      "ai_copilot",
+                      "orders",
+                      "order-analytics",
+                      "reminders",
+                      "live-chat",
+                      "app-files",
+                      "services",
+                      "employees",
+                      ...(isSuperAdmin ? ["all_users"] : []),
+                      "messages",
+                      "reviews",
+                      ...(isSuperAdmin ? ["coupons", "coins", "lottery"] : []),
+                      "news",
+                      ...(isSuperAdmin ? ["reports"] : []),
+                      ...(isSuperAdmin ? ["credentials"] : []),
+                      "security",
+                    ].map((tab) => {
+                      const hasGlow = 
+                        (tab === "orders" && pendingOrdersCount > 0) ||
+                        (tab === "live-chat" && totalUnreadRoomsCount > 0) ||
+                        (tab === "coins" && pendingCoinRequestsCount > 0) ||
+                        (tab === "employees" && pendingEmployeesCount > 0);
+
+                      const isSelected = adminTab === tab;
+                      
+                      let buttonClass = "px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all focus:outline-none whitespace-nowrap cursor-pointer ";
+                      if (isSelected) {
+                        buttonClass += "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30";
+                      } else if (hasGlow) {
+                        buttonClass += "bg-rose-500/10 text-rose-500 dark:text-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.35)] border border-rose-500/20 animate-pulse hover:bg-rose-500/20";
+                      } else {
+                        buttonClass += "text-gray-400 hover:text-gray-650 hover:bg-gray-50 dark:hover:bg-white/5";
+                      }
+
+                      return (
+                        <button
+                          key={tab}
+                          onClick={() => setAdminTab(tab)}
+                          className={buttonClass}
+                        >
+                          {tab === "dashboard"
+                            ? "ড্যাশবোর্ড"
+                            : tab === "ai_copilot"
+                              ? "এআই অ্যাসিস্ট্যান্ট 🤖"
+                              : tab === "orders"
+                                ? (
+                                    <span className="flex items-center gap-1.5 font-black">
+                                      অর্ডারস
+                                      {pendingOrdersCount > 0 && (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse ml-1">
+                                          {pendingOrdersCount}
+                                        </span>
+                                      )}
+                                    </span>
+                                  )
+                              : tab === "order-analytics"
+                                ? "হাইইস্ট অর্ডার আইডি 📊"
+                                : tab === "reminders"
+                                  ? "ইউজার রিমাইন্ডারস ⏰"
+                                  : tab === "live-chat" ? (
+                                      <span className="flex items-center gap-1 font-black">
+                                        গ্রাহক লাইভ চ্যাট 💬
+                                        {totalUnreadRoomsCount > 0 && (
+                                          <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse ml-1">
+                                            {totalUnreadRoomsCount}
+                                          </span>
+                                        )}
                                       </span>
-                                    )}
-                                  </span>
-                                )
-                          : tab === "app-files"
-                            ? "এপ ফাইল 📱"
-                            : tab === "services"
-                              ? "সার্ভিসসমূহ"
-                              : tab === "employees"
-                                ? "টিম/কর্মী 👥"
-                              : tab === "all_users"
-                                ? "মোট ইউজার সংখ্যা 👥"
-                                : tab === "messages"
-                                  ? "মেসেজ বক্স"
-                                  : tab === "reviews"
-                                    ? "রিভিউস"
-                                    : tab === "coupons"
-                                      ? "কুপনসমূহ"
-                                      : tab === "coins"
-                                        ? "কয়েন উইথড্র 🪙"
-                                        : tab === "lottery"
-                                          ? "লটারি কন্ট্রোল"
-                                          : tab === "news"
-                                            ? "নিউজ ও বিজ্ঞাপন 📢"
-                                            : tab === "reports"
-                                              ? "রিপোর্টস"
-                                              : tab === "credentials"
-                                                ? "অ্যাকাউন্ট জেনারেটর 🔑"
-                                                : "সিকিউরিটি শিল্ড 🛡️"}
-                    </button>
-                  ))}
+                                    )
+                              : tab === "app-files"
+                                ? "এপ ফাইল 📱"
+                                : tab === "services"
+                                  ? "সার্ভিসসমূহ"
+                                  : tab === "employees"
+                                    ? (
+                                        <span className="flex items-center gap-1.5 font-black">
+                                          টিম/কর্মী 👥
+                                          {pendingEmployeesCount > 0 && (
+                                            <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse ml-1">
+                                              {pendingEmployeesCount}
+                                            </span>
+                                          )}
+                                        </span>
+                                      )
+                                  : tab === "all_users"
+                                    ? "মোট ইউজার সংখ্যা 👥"
+                                    : tab === "messages"
+                                      ? "মেসেজ বক্স"
+                                      : tab === "reviews"
+                                        ? "রিভিউস"
+                                        : tab === "coupons"
+                                          ? "কুপনসমূহ"
+                                          : tab === "coins"
+                                            ? (
+                                                <span className="flex items-center gap-1.5 font-black">
+                                                  কয়েন উইথড্র 🪙
+                                                  {pendingCoinRequestsCount > 0 && (
+                                                    <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-sans text-[8px] font-black animate-pulse ml-1">
+                                                      {pendingCoinRequestsCount}
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              )
+                                            : tab === "lottery"
+                                              ? "লটারি কন্ট্রোল"
+                                              : tab === "news"
+                                                ? "নিউজ ও বিজ্ঞাপন 📢"
+                                                : tab === "reports"
+                                                  ? "রিপোর্টস"
+                                                  : tab === "credentials"
+                                                    ? "অ্যাকাউন্ট জেনারেটর 🔑"
+                                                    : "সিকিউরিটি শিল্ড 🛡️"}
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -16204,6 +16435,31 @@ export default function App() {
                                         <span>Lat: {u.location.lat.toFixed(5)} | Lng: {u.location.lng.toFixed(5)}</span>
                                         <span>{u.location.updatedAt ? new Date(u.location.updatedAt).toLocaleTimeString() : ""}</span>
                                       </div>
+                                      {u.locationHistory && u.locationHistory.length > 0 && (
+                                        <div className="mt-2 pt-2 border-t border-dotted border-gray-100 dark:border-white/5 space-y-1">
+                                          <p className="text-[9px] font-extrabold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider">
+                                            🕒 অবস্থানের ইতিহাস (সর্বশেষ ৩টি):
+                                          </p>
+                                          <div className="space-y-1 max-h-[100px] overflow-y-auto no-scrollbar">
+                                            {u.locationHistory.filter((item: any) => {
+                                              const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+                                              return (Date.now() - itemTime) < 24 * 60 * 60 * 1000;
+                                            }).map((hist: any, hIdx: number) => (
+                                              <div key={hIdx} className="bg-gray-50/50 dark:bg-slate-950/20 p-1.5 rounded-lg border border-gray-100 dark:border-white/5 text-[9px] flex items-start gap-1">
+                                                <span className="text-gray-400 font-bold shrink-0">#{hIdx + 1}</span>
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="font-bold text-gray-700 dark:text-gray-300 truncate" title={hist.address}>
+                                                    📍 {hist.address}
+                                                  </p>
+                                                  <p className="text-[8px] text-gray-400 font-mono">
+                                                    {hist.updatedAt ? new Date(hist.updatedAt).toLocaleTimeString() : ""}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                       <button
                                         onClick={() => setSelectedUserLocation(u)}
                                         type="button"
