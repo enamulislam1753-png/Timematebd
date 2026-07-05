@@ -2457,6 +2457,12 @@ export default function App() {
     return unsub;
   }, [user]);
 
+  // Keep ref of profile to avoid stale closure and race conditions in location updates
+  const profileRef = useRef(profile);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
   // Continuous Location Tracking & Reverse Geocoding
   useEffect(() => {
     if (!user) return;
@@ -2467,6 +2473,11 @@ export default function App() {
     let lastLng = 0;
 
     const successCallback = async (position: GeolocationPosition) => {
+      // Guard against race conditions where geolocation fires before profile doc exists
+      if (!profileRef.current) {
+        return;
+      }
+
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
       const now = Date.now();
@@ -2485,8 +2496,9 @@ export default function App() {
 
       let addressName = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       try {
+        const emailParam = user.email ? `&email=${encodeURIComponent(user.email)}` : "";
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=bn,en`
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=bn,en${emailParam}`
         );
         if (response.ok) {
           const data = await response.json();
@@ -4464,7 +4476,11 @@ export default function App() {
         type === "app"
           ? "/download-app-source.txt"
           : "/download-package-json.txt";
-      const response = await fetch(filePath);
+      
+      const token = user ? await user.getIdToken() : "";
+      const response = await fetch(filePath, {
+        headers: token ? { "Authorization": `Bearer ${token}` } : {}
+      });
       if (!response.ok) throw new Error("Could not fetch source code");
       const text = await response.text();
       setExportRawText(text);
@@ -4500,11 +4516,14 @@ export default function App() {
         "tsconfig.json": "/download-tsconfig.txt",
       };
 
+      const token = user ? await user.getIdToken() : "";
+      const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+
       const fileEntries = Object.entries(fileUrls);
       await Promise.all(
         fileEntries.map(async ([pathName, url]) => {
           try {
-            const resp = await fetch(url);
+            const resp = await fetch(url, { headers });
             if (resp.ok) {
               const text = await resp.text();
               zip.file(pathName, text);

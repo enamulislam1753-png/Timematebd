@@ -35,6 +35,80 @@ async function startServer() {
   // Middleware to parse incoming bodies as JSON
   app.use(express.json());
 
+  // SECURE BACKEND SOURCE CODE ACCESS: Only the developer (enamulislam1753@gmail.com) can retrieve raw code!
+  app.get('/download-:filename', async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      
+      // Map file aliases to actual pathnames on the server
+      const fileMap: Record<string, string> = {
+        'app-source': 'src/App.tsx',
+        'app-source.txt': 'src/App.tsx',
+        'package-json': 'package.json',
+        'package-json.txt': 'package.json',
+        'order-tracker': 'src/components/OrderTracker.tsx',
+        'order-tracker.txt': 'src/components/OrderTracker.tsx',
+        'firebase-ts': 'src/lib/firebase.ts',
+        'firebase-ts.txt': 'src/lib/firebase.ts',
+        'index-css': 'index.css',
+        'index-css.txt': 'index.css',
+        'index-html': 'index.html',
+        'index-html.txt': 'index.html',
+        'vite-config': 'vite.config.ts',
+        'vite-config.txt': 'vite.config.ts',
+        'tsconfig': 'tsconfig.json',
+        'tsconfig.txt': 'tsconfig.json'
+      };
+
+      const relativePath = fileMap[filename];
+      if (!relativePath) {
+        return res.status(404).send("File not found or access restricted.");
+      }
+
+      // Check Authorization headers for owner validation
+      const authHeader = req.headers.authorization || req.query.token;
+      let token = "";
+      if (typeof authHeader === "string") {
+        token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
+      }
+
+      if (!token) {
+        return res.status(401).send("Unauthorized: Authentication Token Missing. Source code download is highly restricted.");
+      }
+
+      const apiKey = process.env.VITE_FIREBASE_API_KEY || "AIzaSyBUREZZew5XF9d_HfG7a6gFnqGCcvdpHsk";
+      const firebaseResponse = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: token })
+      });
+
+      if (!firebaseResponse.ok) {
+        return res.status(401).send("Unauthorized: Invalid Credentials/Expired Token.");
+      }
+
+      const data = (await firebaseResponse.json()) as any;
+      const email = data.users?.[0]?.email;
+
+      // Allow ONLY the designated developer enamulislam1753@gmail.com
+      if (email !== "enamulislam1753@gmail.com") {
+        console.warn(`[Security Intrusion Alert] Blocked source download request for ${filename} from: ${email}`);
+        return res.status(403).send("Forbidden: You do not have permissions to read/extract the source code of TimeMate BD.");
+      }
+
+      const filePath = path.resolve(process.cwd(), relativePath);
+      if (fs.existsSync(filePath)) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.sendFile(filePath);
+      } else {
+        res.status(404).send("File not present on server disk.");
+      }
+    } catch (err: any) {
+      console.error("[Secure Source Download Error]:", err);
+      res.status(500).send("Internal Server Security Error.");
+    }
+  });
+
   // Custom Route to serve the APK file directly with correct headers
   app.get('/timemate-bd.apk', (req, res) => {
     let filePath = path.resolve(process.cwd(), 'public/timemate-bd.apk');

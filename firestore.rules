@@ -127,7 +127,7 @@ service cloud.firestore {
       allow create: if (isSignedIn() && isValidUser(incoming()) && userId == request.auth.uid) || isAdmin() || isStaff();
       allow update: if isAdmin() || isStaff() || (
         isOwner(userId) && !isBanned() &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fullName', 'phone', 'email', 'role', 'address', 'birthDate', 'customBadge', 'timePoints', 'lastBirthClaimYear', 'lastClaimDate', 'photoURL', 'lastMysteryBoxClaim', 'referralCode', 'referredBy', 'referredByCode', 'mobileVerified', 'lastSpinDate']) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fullName', 'phone', 'email', 'role', 'address', 'birthDate', 'customBadge', 'timePoints', 'lastBirthClaimYear', 'lastClaimDate', 'photoURL', 'lastMysteryBoxClaim', 'referralCode', 'referredBy', 'referredByCode', 'mobileVerified', 'lastSpinDate', 'location']) &&
         (incoming().role == existing().role)
       ) || (
         isSignedIn() && !isBanned() &&
