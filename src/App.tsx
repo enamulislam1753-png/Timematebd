@@ -654,6 +654,156 @@ const UserLiveMap: React.FC<{ lat: number; lng: number; apiKey: string }> = Reac
 });
 UserLiveMap.displayName = "UserLiveMap";
 
+const UserRow: React.FC<{
+  u: any;
+  i: number;
+  isSuperAdmin: boolean;
+  onSelectLocation: (user: any) => void;
+  onBlockSpam: (user: any) => void;
+  onDelete: (user: any) => void;
+}> = React.memo(({ u, i, isSuperAdmin, onSelectLocation, onBlockSpam, onDelete }) => {
+  return (
+    <tr className="hover:bg-gray-50/50 dark:hover:bg-white/2 transition-all">
+      <td className="py-4 px-3 text-center font-mono font-bold text-gray-400">
+        {i + 1}
+      </td>
+      <td className="py-4 px-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 text-white flex items-center justify-center font-black uppercase overflow-hidden shrink-0">
+            {u.photoURL ? (
+              <img src={u.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+            ) : (
+              u.name?.[0] || u.email?.[0] || "?"
+            )}
+          </div>
+          <div>
+            <h4 className="font-extrabold text-gray-900 dark:text-white font-sans text-xs">
+              {u.name || "পূর্ণ নাম নেই"}
+            </h4>
+            <p className="text-[9px] font-mono text-gray-400">UID: {u.uid}</p>
+          </div>
+        </div>
+      </td>
+      <td className="py-4 px-3 font-sans">
+        <p className="font-extrabold text-xs text-gray-800 dark:text-gray-200">{u.phone || "ফোন নেই"}</p>
+        <p className="text-[10px] text-gray-400 font-mono">{u.email || "ইমেইল নেই"}</p>
+      </td>
+      <td className="py-4 px-3 font-sans max-w-[280px]">
+        <div className="space-y-1">
+          {u.address ? (
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate" title={u.address}>
+              🏠 প্রোফাইল: <span className="font-bold text-gray-800 dark:text-gray-200">{u.address}</span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-gray-400 italic">
+              🏠 প্রোফাইল ঠিকানা যুক্ত নেই
+            </p>
+          )}
+          {u.location ? (
+            <div className="space-y-1.5 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 mt-1.5">
+              <div className="flex items-center gap-1 text-[9px] font-black text-sky-500 uppercase tracking-widest leading-none">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-500"></span>
+                </span>
+                লাইভ অবস্থান ট্র্যাকিং (LIVE)
+              </div>
+              <p className="text-[11px] leading-relaxed font-bold bg-sky-50/70 dark:bg-sky-950/20 border border-sky-100/30 dark:border-sky-900/20 text-sky-900 dark:text-sky-200 px-2.5 py-1.5 rounded-xl">
+                📍 {u.location.address || "নাম অনুবাদ করা হচ্ছে..."}
+              </p>
+              <div className="flex items-center justify-between text-[9px] text-gray-455 dark:text-gray-400 font-mono">
+                <span>Lat: {u.location.lat.toFixed(5)} | Lng: {u.location.lng.toFixed(5)}</span>
+                <span>{u.location.updatedAt ? new Date(u.location.updatedAt).toLocaleTimeString() : ""}</span>
+              </div>
+              {u.locationHistory && u.locationHistory.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-dotted border-gray-100 dark:border-white/5 space-y-1">
+                  <p className="text-[9px] font-extrabold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider">
+                    🕒 অবস্থানের ইতিহাস (সর্বশেষ ৩টি):
+                  </p>
+                  <div className="space-y-1 max-h-[100px] overflow-y-auto no-scrollbar">
+                    {u.locationHistory.filter((item: any) => {
+                      const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+                      return (Date.now() - itemTime) < 24 * 60 * 60 * 1000;
+                    }).map((hist: any, hIdx: number) => (
+                      <div key={hIdx} className="bg-gray-50/50 dark:bg-slate-950/20 p-1.5 rounded-lg border border-gray-100 dark:border-white/5 text-[9px] flex items-start gap-1">
+                        <span className="text-gray-400 font-bold shrink-0">#{hIdx + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-700 dark:text-gray-300 truncate" title={hist.address}>
+                            📍 {hist.address}
+                          </p>
+                          <p className="text-[8px] text-gray-400 font-mono">
+                            {hist.updatedAt ? new Date(hist.updatedAt).toLocaleTimeString() : ""}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={() => onSelectLocation(u)}
+                type="button"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-sky-500 to-indigo-500 text-white font-extrabold text-[9px] rounded-lg shadow-sm hover:shadow-sky-500/10 active:scale-95 transition-all w-fit cursor-pointer outline-none"
+              >
+                🗺️ ডিজিটাল ম্যাপ ও প্রিন্ট
+              </button>
+            </div>
+          ) : (
+            <div className="text-[10px] text-gray-455 dark:text-gray-500 italic mt-1 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 flex items-center gap-1">
+              <span>🛰️ লাইভ অবস্থান রেকর্ড করা হয়নি</span>
+            </div>
+          )}
+        </div>
+      </td>
+      <td className="py-4 px-3 text-center font-sans">
+        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-block border ${
+          u.role === "admin"
+            ? "bg-indigo-100 text-indigo-805 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800"
+            : u.role === "staff"
+              ? "bg-amber-100 text-amber-805 dark:bg-amber-900/60 dark:text-amber-200 border-amber-200 dark:border-amber-800"
+              : u.role === "employee"
+                ? "bg-purple-100 text-purple-805 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200 dark:border-purple-800"
+                : u.role === "banned"
+                  ? "bg-red-500 text-white font-black uppercase animate-pulse border-red-600 shadow-sm"
+                  : "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-gray-200 border-gray-200 dark:border-gray-700"
+        }`}>
+          {u.role === "admin"
+            ? "👑 এডমিন"
+            : u.role === "staff"
+              ? "💼 স্টাফ"
+              : u.role === "employee"
+                ? "🛠️ কর্মী"
+                : u.role === "banned"
+                  ? "🚫 ব্লকড"
+                  : "👤 ইউজার"}
+        </span>
+      </td>
+      <td className="py-4 px-3 text-right">
+        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+          <button
+            onClick={() => onBlockSpam(u)}
+            className={`p-1.5 px-3 rounded-xl font-black uppercase tracking-wider text-[9px] font-sans active:scale-95 transition-all cursor-pointer ${
+              u.role === "banned"
+                ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 font-bold"
+                : "bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400 font-bold"
+            }`}
+          >
+            {u.role === "banned" ? "✅ আনব্লক করুন" : "🚫 স্পাম করুন"}
+          </button>
+          <button
+            onClick={() => onDelete(u)}
+            className="p-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25 rounded-xl cursor-pointer active:scale-95 transition-all text-[9.5px] font-black uppercase tracking-wider font-sans flex items-center gap-1"
+            title="চিরতরে মুছে ফেলুন"
+          >
+            <Trash2 size={10} /> 🗑️ ডিলিট করুন
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+UserRow.displayName = "UserRow";
+
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
     try {
@@ -2920,6 +3070,74 @@ export default function App() {
   const [userRoleFilter, setUserRoleFilter] = useState("all");
   const [selectedUserLocation, setSelectedUserLocation] = useState<any | null>(null);
 
+  const filteredUsers = useMemo(() => {
+    const queryLower = userSearchText.toLowerCase().trim();
+    return allUsers.filter((u) => {
+      // Apply Role Filter
+      if (userRoleFilter !== "all" && u.role !== userRoleFilter) {
+        return false;
+      }
+      // Apply Search Query
+      if (queryLower !== "") {
+        const nameStr = (u.name || "").toLowerCase();
+        const emailStr = (u.email || "").toLowerCase();
+        const phoneStr = (u.phone || "").toLowerCase();
+        return nameStr.includes(queryLower) || emailStr.includes(queryLower) || phoneStr.includes(queryLower);
+      }
+      return true;
+    });
+  }, [allUsers, userSearchText, userRoleFilter]);
+
+  const handleSelectLocation = useCallback((u: any) => {
+    setSelectedUserLocation(u);
+  }, []);
+
+  const handleBlockSpam = useCallback((u: any) => {
+    if (!isSuperAdmin) {
+      addToast("সীমাবদ্ধতা: শুধুমাত্র এডমিন ব্যবহারকারী ব্লক বা স্প্যাম করতে পারবেন।", "error");
+      return;
+    }
+    const isBanned = u.role === "banned";
+    customConfirm(
+      `আপনি কি নিশ্চিতভাবে এই ব্যবহারকারীকে ${isBanned ? "আনব্লক" : "স্পাম/ব্লক"} করতে চান?`,
+      async () => {
+        try {
+          await updateDoc(doc(db, "users", u.uid), {
+            role: isBanned ? "user" : "banned"
+          });
+          addToast(
+            isBanned
+              ? `${u.name || "ব্যবহারকারী"}-কে আনব্লক করা হয়েছে`
+              : `${u.name || "ব্যবহারকারী"}-কে স্পাম/ব্লক করা হয়েছে`,
+            "success"
+          );
+        } catch (e: any) {
+          console.error("Spam/Block error:", e);
+          addToast(`স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে: ${e?.message || String(e)}`, "error");
+        }
+      }
+    );
+  }, [isSuperAdmin, addToast, customConfirm]);
+
+  const handleDeleteUser = useCallback((u: any) => {
+    if (!isSuperAdmin) {
+      addToast("সীমাবদ্ধতা: শুধুমাত্র এডমিন ব্যবহারকারী ডিলিট করতে পারবেন।", "error");
+      return;
+    }
+    customConfirm(
+      `⚠️ সতর্কবার্তা!\nআপনি কি নিশ্চিত যে আপনি "${u.name || u.email}" কে ডাটাবেজ থেকে চিরতরে মুছে ফেলতে চান? এটি পুনরায় ফিরিয়ে আনা সম্ভব নয়।`,
+      async () => {
+        try {
+          await deleteDoc(doc(db, "users", u.uid));
+          addToast("ব্যবহারকারী সফলভাবে ডিলিট করা হয়েছে!", "success");
+        } catch (e: any) {
+          console.error("Delete user error:", e);
+          addToast(`ইউজার মুছতে ব্যর্থ হয়েছে: ${e?.message || String(e)}`, "error");
+        }
+      }
+    );
+  }, [isSuperAdmin, addToast, customConfirm]);
+
   const [employeeTab, setEmployeeTabInternal] = useState("jobs");
   const [isPendingEmployeeTab, startEmployeeTabTransition] = useTransition();
   const setEmployeeTab = useCallback((val: string) => {
@@ -3087,6 +3305,37 @@ export default function App() {
     }
   }, [activeCallingRoom?.callState, user, guestSession, localStream]);
 
+  // Helper methods to handle ICE candidates queue safely without racing issues
+  const addIceCandidateSafely = async (pc: RTCPeerConnection, candidate: any) => {
+    if (pc.remoteDescription && pc.remoteDescription.type) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn("Error adding ICE candidate directly:", e);
+      }
+    } else {
+      if (!(pc as any).pendingCandidates) {
+        (pc as any).pendingCandidates = [];
+      }
+      (pc as any).pendingCandidates.push(candidate);
+    }
+  };
+
+  const flushPendingIceCandidates = async (pc: RTCPeerConnection) => {
+    const pending = (pc as any).pendingCandidates;
+    if (pending && pending.length > 0) {
+      console.log(`Flushing ${pending.length} pending ICE candidates.`);
+      for (const cand of pending) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn("Error adding queued ICE candidate:", e);
+        }
+      }
+      (pc as any).pendingCandidates = [];
+    }
+  };
+
   // WebRTC Signal Listener & Sync Engine
   const lastStateCountRef = useRef({ callerCand: 0, receiverCand: 0, answerSet: false });
 
@@ -3115,18 +3364,15 @@ export default function App() {
           const answer = JSON.parse(callState.answer);
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
           lastStateCountRef.current.answerSet = true;
+          await flushPendingIceCandidates(pc);
         }
 
         // 2. Add ICE candidates from the opposite side
         if (isCaller && callState.receiverCandidates && callState.receiverCandidates.length > lastStateCountRef.current.receiverCand) {
           const startIdx = lastStateCountRef.current.receiverCand;
           for (let i = startIdx; i < callState.receiverCandidates.length; i++) {
-            try {
-              const candidate = JSON.parse(callState.receiverCandidates[i]);
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (candErr) {
-              console.warn("Error adding receiver ice candidate:", candErr);
-            }
+            const candidate = JSON.parse(callState.receiverCandidates[i]);
+            await addIceCandidateSafely(pc, candidate);
           }
           lastStateCountRef.current.receiverCand = callState.receiverCandidates.length;
         }
@@ -3134,12 +3380,8 @@ export default function App() {
         if (!isCaller && callState.callerCandidates && callState.callerCandidates.length > lastStateCountRef.current.callerCand) {
           const startIdx = lastStateCountRef.current.callerCand;
           for (let i = startIdx; i < callState.callerCandidates.length; i++) {
-            try {
-              const candidate = JSON.parse(callState.callerCandidates[i]);
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            } catch (candErr) {
-              console.warn("Error adding caller ice candidate:", candErr);
-            }
+            const candidate = JSON.parse(callState.callerCandidates[i]);
+            await addIceCandidateSafely(pc, candidate);
           }
           lastStateCountRef.current.callerCand = callState.callerCandidates.length;
         }
@@ -5830,6 +6072,7 @@ export default function App() {
 
         const offer = JSON.parse(activeCallingRoom.callState.offer);
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPendingIceCandidates(pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         answerSDP = JSON.stringify(answer);
@@ -15410,7 +15653,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="space-y-4 font-sans font-sans">
+                      <div className="space-y-4 font-sans">
                         <h5 className="text-xs font-black text-indigo-500 uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-gray-50 dark:border-white/5">
                           ⚡ সাপ্তাহিক লটারি টিকিটধারী (
                           {(lotteryState.weeklyParticipants || []).length})
@@ -16562,218 +16805,25 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-xs text-gray-700 dark:text-gray-300">
-                        {(() => {
-                          const queryLower = userSearchText.toLowerCase().trim();
-                          const filtered = allUsers.filter((u) => {
-                            // Apply Role Filter
-                            if (userRoleFilter !== "all" && u.role !== userRoleFilter) {
-                              return false;
-                            }
-                            // Apply Search Query
-                            if (queryLower !== "") {
-                              const nameStr = (u.name || "").toLowerCase();
-                              const emailStr = (u.email || "").toLowerCase();
-                              const phoneStr = (u.phone || "").toLowerCase();
-                              return nameStr.includes(queryLower) || emailStr.includes(queryLower) || phoneStr.includes(queryLower);
-                            }
-                            return true;
-                          });
-
-                          if (filtered.length === 0) {
-                            return (
-                              <tr>
-                                <td colSpan={6} className="text-center py-12 text-gray-400 italic text-xs font-sans">
-                                  কোনো ব্যবহারকারী খুঁজে পাওয়া যায়নি।
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return filtered.slice(0, usersLimit).map((u, i) => (
-                            <tr key={u.uid} className="hover:bg-gray-50/50 dark:hover:bg-white/2 transition-all">
-                              <td className="py-4 px-3 text-center font-mono font-bold text-gray-400">
-                                {i + 1}
-                              </td>
-                              <td className="py-4 px-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-600 text-white flex items-center justify-center font-black uppercase overflow-hidden shrink-0">
-                                    {u.photoURL ? (
-                                      <img src={u.photoURL} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                                    ) : (
-                                      u.name?.[0] || u.email?.[0] || "?"
-                                    )}
-                                  </div>
-                                  <div>
-                                    <h4 className="font-extrabold text-gray-900 dark:text-white font-sans text-xs">
-                                      {u.name || "পূর্ণ নাম নেই"}
-                                    </h4>
-                                    <p className="text-[9px] font-mono text-gray-400">UID: {u.uid}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-4 px-3 font-sans">
-                                <p className="font-extrabold text-xs text-gray-800 dark:text-gray-200">{u.phone || "ফোন নেই"}</p>
-                                <p className="text-[10px] text-gray-400 font-mono">{u.email || "ইমেইল নেই"}</p>
-                              </td>
-                              <td className="py-4 px-3 font-sans max-w-[280px]">
-                                <div className="space-y-1">
-                                  {u.address ? (
-                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate" title={u.address}>
-                                      🏠 প্রোফাইল: <span className="font-bold text-gray-800 dark:text-gray-200">{u.address}</span>
-                                    </p>
-                                  ) : (
-                                    <p className="text-[10px] text-gray-400 italic">
-                                      🏠 প্রোফাইল ঠিকানা যুক্ত নেই
-                                    </p>
-                                  )}
-                                  {u.location ? (
-                                    <div className="space-y-1.5 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 mt-1.5">
-                                      <div className="flex items-center gap-1 text-[9px] font-black text-sky-500 uppercase tracking-widest leading-none">
-                                        <span className="relative flex h-1.5 w-1.5">
-                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-500"></span>
-                                        </span>
-                                        লাইভ অবস্থান ট্র্যাকিং (LIVE)
-                                      </div>
-                                      <p className="text-[11px] leading-relaxed font-bold bg-sky-50/70 dark:bg-sky-950/20 border border-sky-100/30 dark:border-sky-900/20 text-sky-900 dark:text-sky-200 px-2.5 py-1.5 rounded-xl">
-                                        📍 {u.location.address || "নাম অনুবাদ করা হচ্ছে..."}
-                                      </p>
-                                      <div className="flex items-center justify-between text-[9px] text-gray-455 dark:text-gray-400 font-mono">
-                                        <span>Lat: {u.location.lat.toFixed(5)} | Lng: {u.location.lng.toFixed(5)}</span>
-                                        <span>{u.location.updatedAt ? new Date(u.location.updatedAt).toLocaleTimeString() : ""}</span>
-                                      </div>
-                                      {u.locationHistory && u.locationHistory.length > 0 && (
-                                        <div className="mt-2 pt-2 border-t border-dotted border-gray-100 dark:border-white/5 space-y-1">
-                                          <p className="text-[9px] font-extrabold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider">
-                                            🕒 অবস্থানের ইতিহাস (সর্বশেষ ৩টি):
-                                          </p>
-                                          <div className="space-y-1 max-h-[100px] overflow-y-auto no-scrollbar">
-                                            {u.locationHistory.filter((item: any) => {
-                                              const itemTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-                                              return (Date.now() - itemTime) < 24 * 60 * 60 * 1000;
-                                            }).map((hist: any, hIdx: number) => (
-                                              <div key={hIdx} className="bg-gray-50/50 dark:bg-slate-950/20 p-1.5 rounded-lg border border-gray-100 dark:border-white/5 text-[9px] flex items-start gap-1">
-                                                <span className="text-gray-400 font-bold shrink-0">#{hIdx + 1}</span>
-                                                <div className="flex-1 min-w-0">
-                                                  <p className="font-bold text-gray-700 dark:text-gray-300 truncate" title={hist.address}>
-                                                    📍 {hist.address}
-                                                  </p>
-                                                  <p className="text-[8px] text-gray-400 font-mono">
-                                                    {hist.updatedAt ? new Date(hist.updatedAt).toLocaleTimeString() : ""}
-                                                  </p>
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                      <button
-                                        onClick={() => setSelectedUserLocation(u)}
-                                        type="button"
-                                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-sky-500 to-indigo-500 text-white font-extrabold text-[9px] rounded-lg shadow-sm hover:shadow-sky-500/10 active:scale-95 transition-all w-fit cursor-pointer outline-none"
-                                      >
-                                        🗺️ ডিজিটাল ম্যাপ ও প্রিন্ট
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="text-[10px] text-gray-455 dark:text-gray-500 italic mt-1 border-t border-dashed border-gray-100 dark:border-white/5 pt-1.5 flex items-center gap-1">
-                                      <span>🛰️ লাইভ অবস্থান রেকর্ড করা হয়নি</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-4 px-3 text-center font-sans">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-block border ${
-                                  u.role === "admin"
-                                    ? "bg-indigo-100 text-indigo-805 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800"
-                                    : u.role === "staff"
-                                      ? "bg-amber-100 text-amber-805 dark:bg-amber-900/60 dark:text-amber-200 border-amber-200 dark:border-amber-800"
-                                      : u.role === "employee"
-                                        ? "bg-purple-100 text-purple-805 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200 dark:border-purple-800"
-                                        : u.role === "banned"
-                                          ? "bg-red-500 text-white font-black uppercase animate-pulse border-red-600 shadow-sm"
-                                          : "bg-gray-100 text-gray-800 dark:bg-slate-800 dark:text-gray-200 border-gray-200 dark:border-gray-700"
-                                 }`}>
-                                  {u.role === "admin"
-                                    ? "👑 এডমিন"
-                                    : u.role === "staff"
-                                      ? "💼 স্টাফ"
-                                      : u.role === "employee"
-                                        ? "🛠️ কর্মী"
-                                        : u.role === "banned"
-                                          ? "🚫 ব্লকড"
-                                          : "👤 ইউজার"}
-                                </span>
-                              </td>
-                              <td className="py-4 px-3 text-right">
-                                <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                  {/* Block / Spam Button */}
-                                  <button
-                                    onClick={() => {
-                                      if (!isSuperAdmin) {
-                                        addToast("সীমাবদ্ধতা: শুধুমাত্র এডমিন ব্যবহারকারী ব্লক বা স্প্যাম করতে পারবেন।", "error");
-                                        return;
-                                      }
-                                      const isBanned = u.role === "banned";
-                                      customConfirm(
-                                        `আপনি কি নিশ্চিতভাবে এই ব্যবহারকারীকে ${isBanned ? "আনব্লক" : "স্পাম/ব্লক"} করতে চান?`,
-                                        async () => {
-                                          try {
-                                            await updateDoc(doc(db, "users", u.uid), {
-                                              role: isBanned ? "user" : "banned"
-                                            });
-                                            addToast(
-                                              isBanned
-                                                ? `${u.name || "ব্যবহারকারী"}-কে আনব্লক করা হয়েছে`
-                                                : `${u.name || "ব্যবহারকারী"}-কে স্পাম/ব্লক করা হয়েছে`,
-                                              "success"
-                                            );
-                                          } catch (e: any) {
-                                            console.error("Spam/Block error:", e);
-                                            addToast(`স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে: ${e?.message || String(e)}`, "error");
-                                          }
-                                        }
-                                      );
-                                    }}
-                                    className={`p-1.5 px-3 rounded-xl font-black uppercase tracking-wider text-[9px] font-sans active:scale-95 transition-all cursor-pointer ${
-                                      u.role === "banned"
-                                        ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 font-bold"
-                                        : "bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400 font-bold"
-                                    }`}
-                                  >
-                                    {u.role === "banned" ? "✅ আনব্লক করুন" : "🚫 স্পাম করুন"}
-                                  </button>
-
-                                  {/* Delete Button */}
-                                  <button
-                                    onClick={() => {
-                                      if (!isSuperAdmin) {
-                                        addToast("সীমাবদ্ধতা: শুধুমাত্র এডমিন ব্যবহারকারী ডিলিট করতে পারবেন।", "error");
-                                        return;
-                                      }
-                                      customConfirm(
-                                        `⚠️ সতর্কবার্তা!\nআপনি কি নিশ্চিত যে আপনি "${u.name || u.email}" কে ডাটাবেজ থেকে চিরতরে মুছে ফেলতে চান? এটি পুনরায় ফিরিয়ে আনা সম্ভব নয়।`,
-                                        async () => {
-                                          try {
-                                            await deleteDoc(doc(db, "users", u.uid));
-                                            addToast("ব্যবহারকারী সফলভাবে ডিলিট করা হয়েছে!", "success");
-                                          } catch (e: any) {
-                                            console.error("Delete user error:", e);
-                                            addToast(`ইউজার মুছতে ব্যর্থ হয়েছে: ${e?.message || String(e)}`, "error");
-                                          }
-                                        }
-                                      );
-                                    }}
-                                    className="p-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25 rounded-xl cursor-pointer active:scale-95 transition-all text-[9.5px] font-black uppercase tracking-wider font-sans flex items-center gap-1"
-                                    title="চিরতরে মুছে ফেলুন"
-                                  >
-                                    <Trash2 size={10} /> 🗑️ ডিলিট করুন
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ));
-                        })()}
+                        {filteredUsers.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="text-center py-12 text-gray-400 italic text-xs font-sans">
+                              কোনো ব্যবহারকারী খুঁজে পাওয়া যায়নি।
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredUsers.slice(0, usersLimit).map((u, i) => (
+                            <UserRow
+                              key={u.uid}
+                              u={u}
+                              i={i}
+                              isSuperAdmin={isSuperAdmin}
+                              onSelectLocation={handleSelectLocation}
+                              onBlockSpam={handleBlockSpam}
+                              onDelete={handleDeleteUser}
+                            />
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
