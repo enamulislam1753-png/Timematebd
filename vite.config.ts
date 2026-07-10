@@ -37,10 +37,15 @@ export default defineConfig(({mode}) => {
       ]
     },
     optimizeDeps: {
-      include: [
+      exclude: [
+        'firebase',
         'firebase/app',
         'firebase/auth',
-        'firebase/firestore'
+        'firebase/firestore',
+        '@firebase/app',
+        '@firebase/firestore',
+        '@firebase/auth',
+        '@firebase/component'
       ]
     },
     build: {

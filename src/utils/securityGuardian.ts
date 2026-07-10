@@ -220,14 +220,10 @@ export const initSecurityGuardian = () => {
   } catch (e) {}
 
   // ==========================================
-  // 8. ANTI-PROTOTYPE POLLUTION (LOCK DOWN PROTOTYPES)
-  // Prevents standard properties from being altered or polluted by script injectors.
+  // 8. ANTI-PROTOTYPE POLLUTION (SAFEGUARD RUNTIME)
+  // Standard prototypes are preserved to ensure Firestore and other third-party SDKs
+  // can register their services and components correctly without being blocked.
   // ==========================================
-  try {
-    Object.freeze(Object.prototype);
-    Object.freeze(Array.prototype);
-    Object.freeze(Function.prototype);
-  } catch (e) {}
 };
 
 /**

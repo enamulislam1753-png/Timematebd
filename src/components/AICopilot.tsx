@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Brain,
   Sparkles,
@@ -13,7 +13,9 @@ import {
   Zap,
   Info,
   Lock,
-  RotateCcw
+  RotateCcw,
+  User,
+  Bot
 } from "lucide-react";
 import { collection, doc, updateDoc, getDocs, query, where, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -23,6 +25,13 @@ interface AICopilotProps {
   allUsers: any[];
   addToast: (msg: string, type?: "success" | "error" | "info") => void;
   trans: (bn: string, en?: string) => string;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: "admin" | "ai";
+  text: string;
+  timestamp: Date;
 }
 
 export const AICopilot: React.FC<AICopilotProps> = ({
@@ -38,23 +47,69 @@ export const AICopilot: React.FC<AICopilotProps> = ({
 
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [aiResponse, setAiResponse] = useState<string>("");
   const [executionLogs, setExecutionLogs] = useState<Array<{ time: string; msg: string; type: "success" | "error" | "info" }>>([]);
+  
+  // Conversational Chat History state
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
+    const saved = localStorage.getItem("timemate_ai_admin_chat_history");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((m: any) => ({
+          ...m,
+          timestamp: new Date(m.timestamp)
+        }));
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: "welcome",
+        sender: "ai",
+        text: "আসসালামু আলাইকুম! আমি টাইমমেট বিডি এআই অ্যাডমিন কো-পাইলট। আপনি আমাকে সিস্টেম অ্যাডমিনিস্ট্রেশন কাজের নির্দেশ দিতে পারেন (যেমন: 'ORD-109 এর মূল্য ৫০০ টাকা করুন') বা সিস্টেম সম্পর্কে যেকোনো তথ্য জানতে চাইতে পারেন। আমি এখন একটি রিয়েল-টাইম চ্যাটবট হিসেবে আপনার সাথে আলোচনা করতে প্রস্তুত!",
+        timestamp: new Date()
+      }
+    ];
+  });
+
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem("timemate_ai_mode", String(isAiModeOn));
     logEvent(`এআই কন্ট্রোল মোড ${isAiModeOn ? "অন (ON)" : "অফ (OFF)"} করা হয়েছে।`, "info");
   }, [isAiModeOn]);
 
+  useEffect(() => {
+    localStorage.setItem("timemate_ai_admin_chat_history", JSON.stringify(chatHistory));
+    // Scroll to bottom
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory]);
+
   const logEvent = (msg: string, type: "success" | "error" | "info" = "info") => {
     const time = new Date().toLocaleTimeString();
     setExecutionLogs((prev) => [{ time, msg, type }, ...prev].slice(0, 50));
   };
 
-  const executeAction = async (payload: any) => {
+  const handleClearHistory = () => {
+    if (confirm("আপনি কি চ্যাট হিস্ট্রি রিসেট করতে চান?")) {
+      const initialChat: ChatMessage[] = [
+        {
+          id: "welcome-reset",
+          sender: "ai",
+          text: "চ্যাট হিস্ট্রি সফলভাবে রিসেট করা হয়েছে। আমি আপনাকে সাহায্য করতে প্রস্তুত!",
+          timestamp: new Date()
+        }
+      ];
+      setChatHistory(initialChat);
+      logEvent("অ্যাডমিন এআই চ্যাট হিস্ট্রি রিসেট করা হয়েছে।", "info");
+      addToast("চ্যাট হিস্ট্রি সফলভাবে সাফ করা হয়েছে।", "info");
+    }
+  };
+
+  const executeAction = async (payload: any): Promise<string> => {
     if (!payload || !payload.action) {
-      setAiResponse("দুঃখিত, আমি এই অনুরোধটির কোনো সঠিক অ্যাকশন নির্ধারণ করতে পারিনি।");
-      return;
+      return "দুঃখিত, আমি এই অনুরোধটির কোনো সঠিক অ্যাকশন নির্ধারণ করতে পারিনি।";
     }
 
     const { action } = payload;
@@ -62,9 +117,9 @@ export const AICopilot: React.FC<AICopilotProps> = ({
 
     // Block sensitive actions
     if (action === "REJECT_SENSITIVE") {
-      setAiResponse(`🚨 নিরাপত্তা ব্লক: ${payload.reason || "এটি একটি অতি স্পর্শকাতর অ্যাকশন যা শুধুমাত্র মানব এডমিন ম্যানুয়ালি সম্পন্ন করতে পারেন।"}`);
+      const reason = payload.reason || "এটি একটি অতি স্পর্শকাতর অ্যাকশন যা শুধুমাত্র মানব এডমিন ম্যানুয়ালি সম্পন্ন করতে পারেন।";
       logEvent(`নিরাপত্তা ব্লক: স্পর্শকাতর কার্যকলাপ ব্লক করা হয়েছে।`, "error");
-      return;
+      return `🚨 নিরাপত্তা ব্লক: ${reason}`;
     }
 
     try {
@@ -78,9 +133,9 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           status: "মূল্য নির্ধারণ"
         });
         const msg = `অর্ডার ${cleanOrderId}-এর নতুন মূল্য ৳${price} নির্ধারণ করা হয়েছে এবং গেটওয়ে ওপেন করা হয়েছে।`;
-        setAiResponse(`✓ সফলভাবে সম্পন্ন হয়েছে! ${msg}`);
         logEvent(msg, "success");
         addToast(msg, "success");
+        return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
       } 
       
       else if (action === "UPDATE_ORDER_STATUS") {
@@ -90,9 +145,9 @@ export const AICopilot: React.FC<AICopilotProps> = ({
         const orderDocRef = doc(db, "orders", cleanOrderId);
         await updateDoc(orderDocRef, { status });
         const msg = `অর্ডার ${cleanOrderId}-এর স্ট্যাটাস পরিবর্তন করে "${status}" করা হয়েছে।`;
-        setAiResponse(`✓ সফলভাবে সম্পন্ন হয়েছে! ${msg}`);
         logEvent(msg, "success");
         addToast(msg, "success");
+        return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
       } 
       
       else if (action === "BAN_USER") {
@@ -111,7 +166,6 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           isBanned: true
         });
         const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি ব্যান বা লক করা হয়েছে।`;
-        setAiResponse(`✓ সফলভাবে সম্পন্ন হয়েছে! ${msg}`);
         logEvent(msg, "success");
         addToast(msg, "success");
 
@@ -125,6 +179,8 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           status: "active",
           deviceId: targetUser.deviceId || "DEV_AUTO"
         });
+
+        return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
       } 
       
       else if (action === "UNBAN_USER") {
@@ -141,21 +197,21 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           isBanned: false
         });
         const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি আনব্যান করা হয়েছে।`;
-        setAiResponse(`✓ সফলভাবে সম্পন্ন হয়েছে! ${msg}`);
         logEvent(msg, "success");
         addToast(msg, "success");
+        return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
       } 
       
       else if (action === "SET_SECURITY_LEVEL") {
         const { level } = payload;
         const msg = `নিরাপত্তা ও অ্যান্টি-ফ্রড প্রটেকশন লেভেল পরিবর্তন করে "${level.toUpperCase()}" করা হয়েছে।`;
-        setAiResponse(`✓ সফলভাবে সম্পন্ন হয়েছে! ${msg}`);
         logEvent(msg, "success");
         addToast(msg, "success");
+        return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
       } 
       
       else if (action === "CHAT_REPLY") {
-        setAiResponse(payload.reply || "আমি কিভাবে সাহায্য করতে পারি বলুন?");
+        return payload.reply || "আমি কিভাবে সাহায্য করতে পারি বলুন?";
       } 
       
       else {
@@ -163,9 +219,9 @@ export const AICopilot: React.FC<AICopilotProps> = ({
       }
     } catch (err: any) {
       const errMsg = `অ্যাকশন এক্সিকিউশন ব্যর্থ হয়েছে: ${err.message}`;
-      setAiResponse(`❌ ত্রুটি: ${err.message}`);
       logEvent(errMsg, "error");
       addToast(err.message, "error");
+      return `❌ ত্রুটি: ${err.message}`;
     }
   };
 
@@ -233,7 +289,7 @@ export const AICopilot: React.FC<AICopilotProps> = ({
     // fallback chat
     return {
       action: "CHAT_REPLY",
-      reply: "আমি আপনার নির্দেশটি বুঝতে পেরেছি কিন্তু সরাসরি অ্যাকশন মডিউল খুঁজে পাইনি। আপনি অর্ডার মূল্য সেট করতে পারেন (যেমন: 'ORD-123 মূল্য ৫০০ টাকা'), ইউজার ব্যান করতে পারেন (যেমন: 'ব্যান করুন ০১৮২৩৭৭৪৬১২'), বা সিকিউরিটি পরিবর্তন করতে পারেন।"
+      reply: `আমি আপনার বার্তাটি বুঝতে পেরেছি কিন্তু সরাসরি অ্যাকশন মডিউল খুঁজে পাইনি। আপনি যদি কোনো সাধারণ জিজ্ঞাসা বা কথোপকথন করতে চান, তাহলে আমার কাছে সরাসরি প্রশ্ন করতে পারেন। আমি উত্তর দেওয়ার চেষ্টা করব!`
     };
   };
 
@@ -246,14 +302,28 @@ export const AICopilot: React.FC<AICopilotProps> = ({
       return;
     }
 
-    setIsLoading(true);
-    setAiResponse("");
     const userPrompt = prompt;
     setPrompt("");
 
+    // Append User's Message immediately to the thread
+    const userMessage: ChatMessage = {
+      id: Math.random().toString(),
+      sender: "admin",
+      text: userPrompt,
+      timestamp: new Date()
+    };
+    setChatHistory((prev) => [...prev, userMessage]);
+
+    setIsLoading(true);
     logEvent(`প্রম্পট ইনপুট: "${userPrompt}"`, "info");
 
     try {
+      // Build conversation history string to include in the context
+      const chatContext = chatHistory
+        .slice(-8)
+        .map((m) => `${m.sender === "admin" ? "Human Admin" : "AI Co-Pilot"}: ${m.text}`)
+        .join("\n");
+
       // 1. Send instruction to Server-Side Gemini safety proxy
       const response = await fetch("/api/play-proxy-gemini", {
         method: "POST",
@@ -262,7 +332,10 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           prompt: `You are TimeMate BD's Admin AI Assistant.
 Your task is to analyze the human administrator's instruction and convert it into a strictly formatted JSON action payload.
 
-Human Admin Input: "${userPrompt}"
+Conversation history for context:
+${chatContext}
+
+Current Human Admin Input: "${userPrompt}"
 
 Available Actions to map:
 - If the instruction is to set an order price/charge:
@@ -277,8 +350,8 @@ Available Actions to map:
   { "action": "SET_SECURITY_LEVEL", "level": "strict" | "standard" | "permissive" }
 - If the instruction requests deleting orders, changing checkout bKash numbers, altering credentials, bypassing security rules, or resetting admin keys (SENSITIVE):
   { "action": "REJECT_SENSITIVE", "reason": "এটি একটি স্পর্শকাতর কার্যকলাপ এবং নিরাপত্তা জনিত কারণে শুধুমাত্র একজন মানব প্রশাসক এই কাজটি সম্পন্ন করতে পারবেন।" }
-- For general greetings or chat (always reply in friendly Bengali):
-  { "action": "CHAT_REPLY", "reply": "Bengali chat text here" }
+- For general greetings, conversations, questions about users or systems, or chat (always reply in friendly, helpful, professional Bengali):
+  { "action": "CHAT_REPLY", "reply": "Bengali chat reply here answering user's question with detail" }
 
 Rules:
 - Respond ONLY with the JSON object. Do NOT include markdown backticks (\`\`\`json), comments, or conversational text. This must be a clean parseable JSON string.
@@ -300,15 +373,117 @@ Rules:
         const cleanJson = jsonMatch ? jsonMatch[0] : rawText;
         parsedPayload = JSON.parse(cleanJson);
       } catch (parseErr) {
-        console.warn("Gemini JSON parse failed, utilizing regex backup.", rawText);
-        parsedPayload = parsePromptLocally(userPrompt);
+        console.warn("Gemini JSON parse failed, utilizing backup.", rawText);
+        parsedPayload = { action: "CHAT_REPLY" };
       }
 
-      await executeAction(parsedPayload);
-    } catch (err) {
-      console.warn("AI routing exception, using local rule-based parser fallback.", err);
-      const localParsed = parsePromptLocally(userPrompt);
-      await executeAction(localParsed);
+      let resultText = "";
+      if (parsedPayload.action === "CHAT_REPLY") {
+        logEvent("সার্ভার-সাইড গুগল এআই চ্যাট এবং সার্চ ক্লাউড একটিভ করা হচ্ছে...", "info");
+        
+        const activeUsersCount = allUsers?.length || 0;
+        const activeOrdersCount = orders?.length || 0;
+        const contextStr = `TimeMate BD Admin Panel Live Context:
+- Total registered database users: ${activeUsersCount}
+- Total registered customer orders: ${activeOrdersCount}
+Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id, customerName: o.customerName, status: o.status, charge: o.charge })))}`;
+
+        const historyParam = chatHistory.slice(-8).map(m => ({
+          role: m.sender === "admin" ? "user" : "model",
+          text: m.text
+        }));
+
+        const aiChatResponse = await fetch("/api/ai-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userPrompt,
+            history: historyParam,
+            context: contextStr
+          })
+        });
+
+        if (aiChatResponse.ok) {
+          const chatData = await aiChatResponse.json();
+          resultText = chatData.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
+          if (chatData.sources && chatData.sources.length > 0) {
+            const sourceList = chatData.sources.map((s: any) => `• [${s.title}](${s.uri})`).join("\n");
+            resultText += `\n\n**তথ্যসূত্র (Google Search):**\n${sourceList}`;
+          }
+        } else {
+          resultText = parsedPayload.reply || "দুঃখিত, এআই চ্যাট সার্ভিস এখন সাড়া দিচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।";
+        }
+      } else {
+        resultText = await executeAction(parsedPayload);
+      }
+      
+      // Append AI Response to the thread
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          id: Math.random().toString(),
+          sender: "ai",
+          text: resultText,
+          timestamp: new Date()
+        }
+      ]);
+    } catch (err: any) {
+      console.warn("AI routing exception, using fallback search chat.", err);
+      try {
+        const activeUsersCount = allUsers?.length || 0;
+        const activeOrdersCount = orders?.length || 0;
+        const contextStr = `TimeMate BD Admin Panel Live Context:
+- Total registered database users: ${activeUsersCount}
+- Total registered customer orders: ${activeOrdersCount}
+Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id, customerName: o.customerName, status: o.status, charge: o.charge })))}`;
+
+        const historyParam = chatHistory.slice(-8).map(m => ({
+          role: m.sender === "admin" ? "user" : "model",
+          text: m.text
+        }));
+
+        const aiChatResponse = await fetch("/api/ai-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userPrompt,
+            history: historyParam,
+            context: contextStr
+          })
+        });
+
+        if (aiChatResponse.ok) {
+          const chatData = await aiChatResponse.json();
+          let resultText = chatData.text || "দুঃখিত, কোনো উত্তর পাওয়া যায়নি।";
+          if (chatData.sources && chatData.sources.length > 0) {
+            const sourceList = chatData.sources.map((s: any) => `• [${s.title}](${s.uri})`).join("\n");
+            resultText += `\n\n**তথ্যসূত্র (Google Search):**\n${sourceList}`;
+          }
+          setChatHistory((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(),
+              sender: "ai",
+              text: resultText,
+              timestamp: new Date()
+            }
+          ]);
+        } else {
+          throw new Error("Fallback chat also failed");
+        }
+      } catch (fallbackErr) {
+        const localParsed = parsePromptLocally(userPrompt);
+        const resultText = await executeAction(localParsed);
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            sender: "ai",
+            text: resultText,
+            timestamp: new Date()
+          }
+        ]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -328,73 +503,119 @@ Rules:
           </div>
           <div>
             <h2 className="text-xl font-black italic uppercase tracking-tight flex items-center gap-2">
-              TimeMate Admin AI Co-Pilot
+              TimeMate Admin AI Co-Pilot & Chatbot
               {isAiModeOn && <Sparkles size={16} className="text-yellow-400 animate-bounce" />}
             </h2>
             <p className="text-xs text-indigo-200/60 mt-1 font-medium">
-              সিস্টেম ম্যানেজমেন্ট, অর্ডার প্রসেসিং ও রিয়েল-টাইম অ্যান্টি-ফ্রড অ্যাকশন সেন্টার।
+              সিস্টেম ম্যানেজমেন্ট, চ্যাটবট অ্যাসিস্ট্যান্স ও রিয়েল-টাইম অটোমেটিক সিকিউরিটি কন্ট্রোল।
             </p>
           </div>
         </div>
 
-        {/* AI Mode Toggle Button */}
-        <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
-          <span className={`text-[10px] uppercase font-black tracking-widest ${isAiModeOn ? "text-indigo-400" : "text-gray-500"}`}>
-            {isAiModeOn ? "AI MODE ACTIVE" : "AI MODE INACTIVE"}
-          </span>
+        {/* AI Mode Toggle & Reset Chat Button */}
+        <div className="flex flex-wrap items-center gap-4">
           <button
             type="button"
-            onClick={() => setIsAiModeOn(!isAiModeOn)}
-            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-300 cursor-pointer outline-none ${isAiModeOn ? "bg-indigo-600" : "bg-white/10"}`}
+            onClick={handleClearHistory}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-indigo-300 hover:text-white transition-all cursor-pointer"
+            title="চ্যাট হিস্ট্রি রিসেট করুন"
           >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-all duration-300 ${isAiModeOn ? "translate-x-8" : "translate-x-1"}`}
-            />
+            <RotateCcw size={13} />
+            <span>রিসেট চ্যাট</span>
           </button>
+
+          <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+            <span className={`text-[10px] uppercase font-black tracking-widest ${isAiModeOn ? "text-indigo-400" : "text-gray-500"}`}>
+              {isAiModeOn ? "AI MODE ACTIVE" : "AI MODE INACTIVE"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsAiModeOn(!isAiModeOn)}
+              className={`relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-300 cursor-pointer outline-none ${isAiModeOn ? "bg-indigo-600" : "bg-white/10"}`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-all duration-300 ${isAiModeOn ? "translate-x-8" : "translate-x-1"}`}
+              />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-        {/* Main Command Input Box & Chat Area */}
+        {/* Main Chat Bot Thread Interface */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-black/30 p-6 rounded-3xl border border-white/5 space-y-4 min-h-[220px] flex flex-col justify-between">
-            {/* Display Area */}
-            <div className="space-y-4">
-              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-1.5">
+          <div className="bg-black/30 p-6 rounded-3xl border border-white/5 space-y-4 min-h-[450px] flex flex-col justify-between">
+            {/* Scrollable Conversation History */}
+            <div className="flex-1 overflow-y-auto max-h-[380px] space-y-4 pr-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
+              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-1.5 mb-2 border-b border-white/5 pb-2">
                 <Zap size={12} className="animate-pulse" />
-                এআই অ্যাসিস্ট্যান্ট রেসপন্স
+                এআই চ্যাট থ্রেড (Conversational Memory Active)
               </span>
 
-              {isLoading ? (
-                <div className="flex items-center gap-3 text-indigo-300 font-bold text-xs py-4">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping"></span>
-                  এআই আপনার নির্দেশ বিশ্লেষণ করে এক্সিকিউট করছে...
+              {chatHistory.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.sender === "admin" ? "justify-end" : "justify-start"} items-start gap-2`}
+                >
+                  {msg.sender === "ai" && (
+                    <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                      <Bot size={16} />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[85%] p-4 rounded-2xl text-xs font-semibold leading-relaxed leading-relaxed whitespace-pre-wrap shadow-lg border ${
+                      msg.sender === "admin"
+                        ? "bg-indigo-650/40 border-indigo-500/30 text-white rounded-tr-none ml-10"
+                        : "bg-white/5 border-white/5 text-indigo-100 rounded-tl-none mr-10"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-4 mb-1.5 opacity-50 text-[8px] font-black uppercase">
+                      <span>{msg.sender === "admin" ? "অ্যাডমিন (You)" : "টাইমমেট এআই সহকারী"}</span>
+                      <span>{msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    {msg.text}
+                  </div>
+                  {msg.sender === "admin" && (
+                    <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                      <User size={16} />
+                    </div>
+                  )}
                 </div>
-              ) : aiResponse ? (
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 text-sm leading-relaxed text-indigo-100 font-medium whitespace-pre-wrap">
-                  {aiResponse}
+              ))}
+
+              {isLoading && (
+                <div className="flex justify-start items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 animate-pulse">
+                    <Bot size={16} className="animate-spin-slow" />
+                  </div>
+                  <div className="bg-white/5 border border-white/5 p-4 rounded-2xl rounded-tl-none text-xs font-bold text-indigo-300 flex items-center gap-2">
+                    <span className="flex gap-1">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                    এআই প্রম্পট ও অ্যাকশন বিশ্লেষণ করছে...
+                  </div>
                 </div>
-              ) : (
-                <p className="text-xs text-gray-500 italic py-2">
-                  ব্যানার বা অর্ডার চার্জ আপডেট করতে এআই অ্যাসিস্ট্যান্টকে ইনস্ট্রাকশন দিন।
-                </p>
               )}
+
+              <div ref={chatEndRef} />
             </div>
 
             {/* Input Form */}
-            <form onSubmit={handleCommandSubmit} className="flex gap-2.5 mt-4">
+            <form onSubmit={handleCommandSubmit} className="flex gap-2.5 pt-4 border-t border-white/5">
               <input
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder={isAiModeOn ? "উদা: 'ব্যান করুন ০১৮২৩৭৭৪৬১২' অথবা 'ORD-109 মূল্য ৫০০ টাকা'" : "এআই মোড অফ আছে"}
+                placeholder={isAiModeOn ? "যেকোনো প্রশ্ন জিজ্ঞেস করুন বা অর্ডার আপডেট করুন..." : "এআই মোড অফ আছে"}
                 disabled={!isAiModeOn || isLoading}
-                className="flex-1 px-4 py-3.5 bg-black/40 border border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-medium placeholder-gray-500 disabled:opacity-50"
+                className="flex-1 px-4 py-3.5 bg-black/40 border border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-bold placeholder-gray-500 disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={!isAiModeOn || isLoading || !prompt.trim()}
-                className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 transition-all rounded-2xl text-white font-black cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95"
+                className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 transition-all rounded-2xl text-white font-black cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95 border-0"
               >
                 <Send size={16} />
               </button>
@@ -409,17 +630,17 @@ Rules:
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {[
-                { label: "নতুন অর্ডারের মূল্য সেট", cmd: "ORD-109 মূল্য ৫০০ টাকা" },
-                { label: "সন্দেহজনক গ্রাহক ব্যান", cmd: "ব্যান করুন ০১৮২৩৭৭৪৬১২" },
-                { label: "গ্রাহক আনব্যান অ্যাকশন", cmd: "আনব্যান করুন ০১৮২৩৭৭৪৬১২" },
-                { label: "নিরাপত্তা লেভেল পরিবর্তন", cmd: "নিরাপত্তা লেভেল Strict করুন" }
+                { label: "নতুন অর্ডারের মূল্য সেট", cmd: "ORD-109 এর মূল্য ৫০০ টাকা সেট করো" },
+                { label: "সন্দেহজনক গ্রাহক ব্যান", cmd: "ব্যান করো ০১৮২৩৭৭৪৬১২" },
+                { label: "গ্রাহক আনব্যান অ্যাকশন", cmd: "আনব্যান করো ০১৮২৩৭৭৪৬১২" },
+                { label: "নিরাপত্তা লেভেল পরিবর্তন", cmd: "নিরাপত্তা লেভেল Strict বা কঠোর করে দাও" }
               ].map((item, idx) => (
                 <button
                   key={idx}
                   type="button"
                   disabled={!isAiModeOn || isLoading}
                   onClick={() => setPrompt(item.cmd)}
-                  className="px-4 py-3 bg-black/20 hover:bg-black/40 border border-white/5 rounded-xl text-left text-[11px] font-bold text-gray-350 hover:text-white transition-all flex justify-between items-center group cursor-pointer disabled:opacity-50"
+                  className="px-4 py-3 bg-black/20 hover:bg-black/40 border border-white/5 rounded-xl text-left text-[11px] font-bold text-gray-300 hover:text-white transition-all flex justify-between items-center group cursor-pointer disabled:opacity-50"
                 >
                   <span>{item.label}</span>
                   <span className="text-[9px] text-indigo-400 font-mono group-hover:translate-x-1 transition-all">»</span>
