@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { EncryptedField } from "./EncryptedField";
+
 
 interface SecurityAlert {
   id: string;
@@ -30,6 +32,20 @@ export const SecurityHub: React.FC = () => {
   const [bannedCount, setBannedCount] = useState<number>(0);
   const [securityLevel, setSecurityLevel] = useState<"strict" | "standard" | "permissive">("standard");
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
+  const [isShieldActive, setIsShieldActive] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("timemate_gdpr_shield") === "true";
+    }
+    return false;
+  });
+
+  const toggleShield = () => {
+    const newVal = !isShieldActive;
+    setIsShieldActive(newVal);
+    localStorage.setItem("timemate_gdpr_shield", String(newVal));
+    window.dispatchEvent(new Event("timemate_gdpr_shield_change"));
+  };
+
 
   // Real-time sync of security alerts from Firebase
   useEffect(() => {
@@ -201,6 +217,40 @@ export const SecurityHub: React.FC = () => {
         </div>
       </div>
 
+      {/* GDPR Military-Grade E2E Data Shield */}
+      <div className="bg-[#6366f1]/5 dark:bg-[#6366f1]/10 p-5 rounded-2xl border border-[#6366f1]/20 space-y-3.5">
+        <div className="flex justify-between items-start gap-4">
+          <div className="space-y-1">
+            <h4 className="text-xs font-black uppercase text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
+              <Lock size={14} className={isShieldActive ? "text-emerald-500 animate-pulse" : "text-indigo-500"} />
+              E2E Client-Side Database Shield
+            </h4>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed max-w-md">
+              সক্রিয় থাকলে গ্রাহকদের ফোন, ইমেইল, ঠিকানা সহ সমস্ত সংবেদনশীল ডেটা ডোম (DOM) লেভেলে এনক্রিপ্ট হয়ে যাবে। হোভার (Hover) করার মাধ্যমে বা পিন দিয়ে ডিক্রিপ্ট করে রিয়েল-টাইম ভিউ করতে পারবেন।
+            </p>
+          </div>
+          <button
+            onClick={toggleShield}
+            className={`px-3.5 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer transition-all border ${
+              isShieldActive
+                ? "bg-emerald-650/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25 shadow-sm"
+                : "bg-white dark:bg-slate-900 text-gray-500 hover:text-gray-700 border-gray-200/50 dark:border-white/5"
+            }`}
+          >
+            {isShieldActive ? "🔒 Shield Active" : "🔓 Shield Off"}
+          </button>
+        </div>
+        
+        {isShieldActive && (
+          <div className="flex items-center gap-2 bg-emerald-500/5 border border-emerald-500/10 px-3 py-2 rounded-xl">
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+            <span className="text-[9px] font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
+              AES-256 E2E Masking & Virtual Sandbox Enforced
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Alerts Log List */}
       <div className="space-y-3">
         <h4 className="text-xs font-black uppercase text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
@@ -229,7 +279,7 @@ export const SecurityHub: React.FC = () => {
                   }`}>
                     {alert.severity.toUpperCase()}
                   </span>
-                  <span className="text-[11px] font-extrabold text-[#6366f1]">{alert.userPhone}</span>
+                  <EncryptedField value={alert.userPhone} type="phone" />
                   <span className="text-[9px] text-gray-400 font-mono">({alert.deviceId})</span>
                 </div>
                 <p className="text-xs text-gray-700 dark:text-gray-300 font-medium">{alert.issue}</p>

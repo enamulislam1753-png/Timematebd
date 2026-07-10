@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Settings, Play, Users, RefreshCw, Sparkles, CheckCircle } from "lucide-react";
+import { EncryptedField } from "./EncryptedField";
+
 
 interface ServiceBooking {
   id: string;
@@ -300,7 +302,9 @@ export const OperationsControl: React.FC = () => {
                     <span className="font-mono text-[9px] font-black text-indigo-500 px-1.5 py-0.5 bg-indigo-500/10 rounded">
                       {booking.id}
                     </span>
-                    <p className="font-extrabold text-[#111] dark:text-white">{booking.customerName}</p>
+                    <span className="font-extrabold text-[#111] dark:text-white">
+                      <EncryptedField value={booking.customerName} type="text" />
+                    </span>
                   </div>
                   <p className="text-[11px] text-gray-500 dark:text-slate-400 font-bold mt-1">
                     {booking.serviceSelected}
