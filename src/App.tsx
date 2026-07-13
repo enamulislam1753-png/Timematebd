@@ -4269,10 +4269,13 @@ export default function App() {
               await updateDoc(docRef, updates);
             }
           }
-        } catch (err) {
-          const isOfflineErr = typeof navigator !== "undefined" && !navigator.onLine;
+        } catch (err: any) {
+          const errStr = err instanceof Error ? err.message : String(err);
+          const isOfflineErr = (typeof navigator !== "undefined" && !navigator.onLine) ||
+                               errStr.toLowerCase().includes("offline") ||
+                               errStr.toLowerCase().includes("unavailable");
           if (isOfflineErr) {
-            console.warn("Client is offline. Firestore will load profile using persistent local cache.");
+            console.warn("Client is offline. Firestore will load profile using persistent local cache/snapshots.", err);
           } else {
             console.error("Error checking/initializing profile:", err);
           }
@@ -4287,7 +4290,15 @@ export default function App() {
             setLoading(false);
           },
           (err) => {
-            console.error("Profile snapshot error:", err);
+            const errStr = err instanceof Error ? err.message : String(err);
+            const isOfflineErr = (typeof navigator !== "undefined" && !navigator.onLine) ||
+                                 errStr.toLowerCase().includes("offline") ||
+                                 errStr.toLowerCase().includes("unavailable");
+            if (isOfflineErr) {
+              console.warn("Profile snapshot offline/unavailable:", err);
+            } else {
+              console.error("Profile snapshot error:", err);
+            }
             setLoading(false);
           },
         );
