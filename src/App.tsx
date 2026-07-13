@@ -136,9 +136,6 @@ import {
 } from "lucide-react";
 
 import { auth, db } from "./lib/firebase";
-import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, setPersistence, inMemoryPersistence } from "firebase/auth";
-import firebaseConfig from "./firebaseConfig";
 import OrderTracker from "./components/OrderTracker";
 import { SecurityHub } from "./components/SecurityHub";
 import { CoinEconomy } from "./components/CoinEconomy";

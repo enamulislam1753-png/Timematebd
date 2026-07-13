@@ -36,18 +36,6 @@ export default defineConfig(({mode}) => {
         '@firebase/logger'
       ]
     },
-    optimizeDeps: {
-      exclude: [
-        'firebase',
-        'firebase/app',
-        'firebase/auth',
-        'firebase/firestore',
-        '@firebase/app',
-        '@firebase/firestore',
-        '@firebase/auth',
-        '@firebase/component'
-      ]
-    },
     build: {
       sourcemap: false, // Prevent extraction of original TypeScript files via source maps in production
       minify: 'esbuild',

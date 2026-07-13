@@ -286,6 +286,32 @@ export const AICopilot: React.FC<AICopilotProps> = ({
       if (clean.includes("permissive") || clean.includes("নমনীয়")) return { action: "SET_SECURITY_LEVEL", level: "permissive" };
     }
 
+    // Smart Conversational fallback answers for common greetings
+    const greetings = ["hi", "hello", "হাই", "হ্যালো", "হেই", "hey", "কেমন আছো", "salam", "সালাম", "আসসালামু আলাইকুম", "কেমন আছেন", "কেমন আছ"];
+    const isGreeting = greetings.some(g => clean.includes(g));
+    if (isGreeting) {
+      return {
+        action: "CHAT_REPLY",
+        reply: "আসসালামু আলাইকুম! আমি টাইমমেট বিডি এআই অ্যাডমিন কো-পাইলট। আমি আপনার টাইমমেট এডমিন সিস্টেম পরিচালনা করতে সাহায্য করতে পারি। বলুন আজ আপনাকে কিভাবে সাহায্য করতে পারি?"
+      };
+    }
+
+    // Help assistance
+    const helpKeywords = ["help", "হেল্প", "সাহায্য", "কাজ", "কমান্ড", "কি করতে পারো", "সাপোর্ট", "ফিচার", "নির্দেশ"];
+    const isHelp = helpKeywords.some(hk => clean.includes(hk));
+    if (isHelp) {
+      return {
+        action: "CHAT_REPLY",
+        reply: `আমি টাইমমেট বিডি-র নিচের প্রশাসনিক কাজগুলো করতে পারি:
+১. **অর্ডারের দাম নির্ধারণ**: লিখুন "ORD-XXXX এর মূল্য ৫০০ টাকা করুন"
+২. **অর্ডারের স্ট্যাটাস পরিবর্তন**: লিখুন "ORD-XXXX সম্পন্ন করুন" বা "ORD-XXXX বাতিল করুন"
+৩. **ইউজার ব্যান/ব্লক করা**: লিখুন "ইউজার ০১৮২৩৭৭৪৬১২ ব্যান করুন"
+৪. **নিরাপত্তা লেভেল সেট করা**: লিখুন "নিরাপত্তা লেভেল strict করুন"
+
+এছাড়াও যেকোনো সাধারণ প্রশ্ন করতে পারেন, আমি জেমিনি এআই ও গুগল সার্চের মাধ্যমে উত্তর দেবো!`
+      };
+    }
+
     // fallback chat
     return {
       action: "CHAT_REPLY",
@@ -318,13 +344,63 @@ export const AICopilot: React.FC<AICopilotProps> = ({
     logEvent(`প্রম্পট ইনপুট: "${userPrompt}"`, "info");
 
     try {
+      // 1. Check local parser FIRST to see if we can execute local commands or answer common greetings/help requests immediately!
+      const localParsed = parsePromptLocally(userPrompt);
+      if (localParsed && localParsed.action !== "CHAT_REPLY") {
+        // It's a structured admin command!
+        const resultText = await executeAction(localParsed);
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            sender: "ai",
+            text: resultText,
+            timestamp: new Date()
+          }
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check for common greetings or help keywords manually for instant, lightweight execution
+      const cleanInput = userPrompt.toLowerCase().trim();
+      const greetings = ["hi", "hello", "হাই", "হ্যালো", "হেই", "hey", "কেমন আছো", "salam", "সালাম", "আসসালামু আলাইকুম", "কেমন আছেন", "কেমন আছ"];
+      const isGreeting = greetings.some(g => cleanInput.includes(g));
+
+      const helpKeywords = ["help", "হেল্প", "সাহায্য", "কাজ", "কমান্ড", "কি করতে পারো", "সাপোর্ট", "ফিচার", "নির্দেশ"];
+      const isHelp = helpKeywords.some(hk => cleanInput.includes(hk));
+
+      if (isGreeting || isHelp) {
+        const reply = isGreeting 
+          ? "আসসালামু আলাইকুম! আমি টাইমমেট বিডি এআই অ্যাডমিন কো-পাইলট। আমি আপনার টাইমমেট এডমিন সিস্টেম পরিচালনা করতে সাহায্য করতে পারি। যেমন অর্ডারের মূল্য সেট করা, গ্রাহক ব্যান করা ইত্যাদি। বলুন আজ আপনাকে কিভাবে সাহায্য করতে পারি?"
+          : `আমি টাইমমেট বিডি-র নিচের প্রশাসনিক কাজগুলো করতে পারি:
+১. **অর্ডারের দাম নির্ধারণ**: লিখুন "ORD-XXXX এর মূল্য ৫০০ টাকা করুন"
+২. **অর্ডারের স্ট্যাটাস পরিবর্তন**: লিখুন "ORD-XXXX সম্পন্ন করুন" বা "ORD-XXXX বাতিল করুন"
+৩. **ইউজার ব্যান/ব্লক করা**: লিখুন "ইউজার ০১৮২৩৭৭৪৬১২ ব্যান করুন"
+৪. **নিরাপত্তা লেভেল সেট করা**: লিখুন "নিরাপত্তা লেভেল strict করুন"
+
+এছাড়াও যেকোনো সাধারণ প্রশ্ন করতে পারেন, আমি জেমিনি এআই ও গুগল সার্চের মাধ্যমে উত্তর দেবো!`;
+
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            id: Math.random().toString(),
+            sender: "ai",
+            text: reply,
+            timestamp: new Date()
+          }
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
       // Build conversation history string to include in the context
       const chatContext = chatHistory
         .slice(-8)
         .map((m) => `${m.sender === "admin" ? "Human Admin" : "AI Co-Pilot"}: ${m.text}`)
         .join("\n");
 
-      // 1. Send instruction to Server-Side Gemini safety proxy
+      // 2. Not a simple local action or greeting. Proceed to Server-Side Gemini safety proxy
       const response = await fetch("/api/play-proxy-gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -472,8 +548,53 @@ Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id
           throw new Error("Fallback chat also failed");
         }
       } catch (fallbackErr) {
-        const localParsed = parsePromptLocally(userPrompt);
-        const resultText = await executeAction(localParsed);
+        let resultText = "";
+        
+        // Check if user has VITE_GEMINI_API_KEY for a client-side direct fallback call
+        const clientApiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+        if (clientApiKey) {
+          try {
+            logEvent("ক্লায়েন্ট-সাইড জেমিনি এপিআই সংযোগ করা হচ্ছে...", "info");
+            const directResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${clientApiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: userPrompt }] }]
+              })
+            });
+            if (directResponse.ok) {
+              const directData = await directResponse.json();
+              resultText = directData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            }
+          } catch (directErr) {
+            console.error("Direct client Gemini API error:", directErr);
+          }
+        }
+
+        if (!resultText) {
+          const isVercel = window.location.hostname.includes("vercel.app");
+          
+          // Even on Vercel, try checking if local parser can generate a reply for standard requests
+          const localParsed = parsePromptLocally(userPrompt);
+          if (localParsed && localParsed.reply && !localParsed.reply.includes("অ্যাকশন মডিউল খুঁজে পাইনি")) {
+            resultText = localParsed.reply;
+          } else if (isVercel) {
+            resultText = `⚠️ **এআই কো-পাইলট অ্যাক্টিভেশন নির্দেশনা (Vercel Host):**
+আপনার টাইমমেট প্রজেক্টটি Vercel-এ হোস্ট করা আছে। Vercel একটি স্ট্যাটিক সাইট হিসেবে রান করায় এক্সপ্রেস ব্যাকএন্ড সার্ভার এপিআইগুলো সেখানে এভেইলেবল থাকে না।
+
+**কিভাবে ১ মিনিটে এআই কো-পাইলট সচল করবেন:**
+১. আপনার Vercel ড্যাশবোর্ডে গিয়ে এই প্রজেক্টের **Settings > Environment Variables** এ যান।
+২. নতুন এনভায়রনমেন্ট ভেরিয়েবল যোগ করুন:
+   - **Key**: \`VITE_GEMINI_API_KEY\`
+   - **Value**: \`your_actual_gemini_api_key_here\` *(আপনার গুগল জেমিনি এপিআই কি)*
+৩. ভেরিয়েবলটি যোগ করার পর প্রজেক্টটি ড্যাশবোর্ড থেকে পুনরায় **Redeploy** করুন।
+
+*(উল্লেখ্য: লোকালহোস্ট এবং এআই স্টুডিওতে রিয়েল-টাইম এআই ও গুগল সার্চ গ্রাউন্ডিং অলরেডি ১০০% সচল রয়েছে।)*`;
+          } else {
+            resultText = await executeAction(localParsed);
+          }
+        }
+
         setChatHistory((prev) => [
           ...prev,
           {

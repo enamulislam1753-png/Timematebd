@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -338,21 +339,37 @@ Guidelines:
 4. If a user asks about their order status, tracking, or account details, read and refer to the "Context about the current user & system" above to provide accurate real-time information!
 5. Feel free to explain code, solve scientific equations, write stories, or perform any cognitive task. Keep answers highly interactive, helpful, and structured.`;
 
-      console.log(`[AI Chat API] Initiating request to gemini-3.5-flash with search grounding...`);
+      console.log(`[AI Chat API] Initiating request to gemini-3.5-flash...`);
 
-      const response = await client.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          systemInstruction,
-          tools: [{ googleSearch: {} }],
-        }
-      });
+      let response;
+      let usedGrounding = false;
+      try {
+        console.log(`[AI Chat API] Attempting generateContent with Google Search grounding...`);
+        response = await client.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents,
+          config: {
+            systemInstruction,
+            tools: [{ googleSearch: {} }],
+          }
+        });
+        usedGrounding = true;
+      } catch (searchErr: any) {
+        console.warn("[AI Chat API] Search grounding failed, retrying without search tools:", searchErr?.message || searchErr);
+        // Self-healing fallback: retry WITHOUT search tools (crucial for free tier / restricted keys)
+        response = await client.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents,
+          config: {
+            systemInstruction,
+          }
+        });
+      }
 
       const replyText = response.text || "দুঃখিত, কোনো উত্তর জেনারেট করা সম্ভব হয়নি।";
       
       // Extract Google Search grounding sources to display beautifully to the user!
-      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const groundingChunks = usedGrounding ? response.candidates?.[0]?.groundingMetadata?.groundingChunks : null;
       const sources = groundingChunks ? groundingChunks.map((chunk: any) => ({
         title: chunk.web?.title || "Web Source",
         uri: chunk.web?.uri || "#"
@@ -401,37 +418,25 @@ Guidelines:
         return res.status(503).json({ error: "Gemini API key is not configured on the server." });
       }
 
-      console.log(`[API Secure AI Proxy] Forwarding sanitized request to Gemini 1.5-Flash...`);
+      const client = getGeminiClient();
+      console.log(`[API Secure AI Proxy] Forwarding sanitized request to Gemini 3.5-Flash via SDK...`);
       
-      // 3. Forward request with Google Play Compliant Safety Settings (Blocking Hate Speech, Harassment, etc.)
-      const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-      const geminiResponse = await fetch(geminiEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: cleanPrompt }] }],
+      // 3. Forward request using official SDK
+      const response = await client.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: cleanPrompt,
+        config: {
           safetySettings: [
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_LOW_AND_ABOVE" },
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_LOW_AND_ABOVE" },
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_LOW_AND_ABOVE" },
             { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_LOW_AND_ABOVE" }
           ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 1024
-          }
-        })
+          temperature: 0.2,
+        }
       });
 
-      const data = await geminiResponse.json();
-      
-      if (!geminiResponse.ok) {
-        console.warn("[Gemini Web Proxy Notice]:", data?.error?.message || "Google AI Service returned error.");
-        return res.status(geminiResponse.status).json({ error: data.error?.message || "Google AI Service error." });
-      }
-
-      // Extract generated text back to client
-      const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated due to safety filter block.";
+      const replyText = response.text || "No response generated due to safety filter block.";
       res.json({ text: replyText });
     } catch (e: any) {
       console.warn("[Gemini Proxy Notice]:", e?.message || e);
