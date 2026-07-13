@@ -26,6 +26,68 @@ function getGeminiClient() {
   return aiClient;
 }
 
+// Robust fallback and retry wrapper for Gemini generation to handle 429/503/RESOURCE_EXHAUSTED/UNAVAILABLE errors
+async function generateContentWithRetry(
+  client: any,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  maxRetries = 2
+): Promise<any> {
+  let attempt = 0;
+  let currentModel = params.model;
+  
+  while (true) {
+    try {
+      const response = await client.models.generateContent({
+        ...params,
+        model: currentModel,
+      });
+      return response;
+    } catch (err: any) {
+      attempt++;
+      const errStr = err instanceof Error ? err.message : String(err);
+      const isRateLimitOrUnavailable = 
+        errStr.includes("429") || 
+        errStr.includes("503") || 
+        errStr.includes("RESOURCE_EXHAUSTED") || 
+        errStr.includes("UNAVAILABLE") || 
+        errStr.toLowerCase().includes("high demand") || 
+        errStr.toLowerCase().includes("quota");
+
+      if (isRateLimitOrUnavailable && attempt <= maxRetries) {
+        console.warn(`[Gemini API Warning] Attempt ${attempt} failed with rate limit or unavailability: ${errStr}. Retrying after 1000ms...`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        
+        // On subsequent attempts, if it keeps failing, switch model to gemini-3.1-flash-lite as fallback
+        if (attempt === maxRetries && currentModel === "gemini-3.5-flash") {
+          console.warn("[Gemini API Fallback] Switching model from gemini-3.5-flash to gemini-3.1-flash-lite due to repeated errors.");
+          currentModel = "gemini-3.1-flash-lite";
+        }
+        continue;
+      }
+      
+      // If we haven't already switched to gemini-3.1-flash-lite, try one last time with gemini-3.1-flash-lite immediately
+      if (currentModel === "gemini-3.5-flash") {
+        console.warn("[Gemini API Fallback] Instant fallback to gemini-3.1-flash-lite after error:", errStr);
+        try {
+          const fallbackResponse = await client.models.generateContent({
+            ...params,
+            model: "gemini-3.1-flash-lite",
+          });
+          return fallbackResponse;
+        } catch (fallbackErr) {
+          console.error("[Gemini API Fallback Error]:", fallbackErr);
+        }
+      }
+      
+      throw err;
+    }
+  }
+}
+
 // Temporary storage for verified phone and email OTP codes in server-side memory
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
 
@@ -345,7 +407,7 @@ Guidelines:
       let usedGrounding = false;
       try {
         console.log(`[AI Chat API] Attempting generateContent with Google Search grounding...`);
-        response = await client.models.generateContent({
+        response = await generateContentWithRetry(client, {
           model: "gemini-3.5-flash",
           contents,
           config: {
@@ -353,11 +415,11 @@ Guidelines:
             tools: [{ googleSearch: {} }],
           }
         });
-        usedGrounding = true;
+        usedGrounding = !!(response?.candidates?.[0]?.groundingMetadata?.groundingChunks);
       } catch (searchErr: any) {
         console.warn("[AI Chat API] Search grounding failed, retrying without search tools:", searchErr?.message || searchErr);
         // Self-healing fallback: retry WITHOUT search tools (crucial for free tier / restricted keys)
-        response = await client.models.generateContent({
+        response = await generateContentWithRetry(client, {
           model: "gemini-3.5-flash",
           contents,
           config: {
@@ -421,8 +483,8 @@ Guidelines:
       const client = getGeminiClient();
       console.log(`[API Secure AI Proxy] Forwarding sanitized request to Gemini 3.5-Flash via SDK...`);
       
-      // 3. Forward request using official SDK
-      const response = await client.models.generateContent({
+      // 3. Forward request using official SDK with fallback retry handling
+      const response = await generateContentWithRetry(client, {
         model: "gemini-3.5-flash",
         contents: cleanPrompt,
         config: {

@@ -15,7 +15,8 @@ import {
   Lock,
   RotateCcw,
   User,
-  Bot
+  Bot,
+  Settings
 } from "lucide-react";
 import { collection, doc, updateDoc, getDocs, query, where, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -48,6 +49,12 @@ export const AICopilot: React.FC<AICopilotProps> = ({
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<Array<{ time: string; msg: string; type: "success" | "error" | "info" }>>([]);
+  
+  // Custom API key settings state
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [userApiKey, setUserApiKey] = useState<string>(() => {
+    return localStorage.getItem("user_gemini_api_key") || "";
+  });
   
   // Conversational Chat History state
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
@@ -102,9 +109,23 @@ export const AICopilot: React.FC<AICopilotProps> = ({
         }
       ];
       setChatHistory(initialChat);
-      logEvent("অ্যাডমিন এআই চ্যাট হিস্ট্রি রিসেট করা হয়েছে।", "info");
-      addToast("চ্যাট হিস্ট্রি সফলভাবে সাফ করা হয়েছে।", "info");
+      logEvent("অ্যাডমিন এআই চ্যাট হিস্ট্রি রিসেট করা হয়েছে।", "success");
     }
+  };
+
+  const handleSaveApiKey = () => {
+    localStorage.setItem("user_gemini_api_key", userApiKey);
+    addToast("Gemini API Key সফলভাবে ক্লায়েন্ট-সাইডে সংরক্ষণ করা হয়েছে।", "success");
+    logEvent("ক্লায়েন্ট-সাইড জেমিনি এপিআই কি পরিবর্তন করা হয়েছে।", "success");
+    setShowSettings(false);
+  };
+
+  const handleClearApiKey = () => {
+    localStorage.removeItem("user_gemini_api_key");
+    setUserApiKey("");
+    addToast("Gemini API Key মুছে ফেলা হয়েছে।", "success");
+    logEvent("ক্লায়েন্ট-সাইড জেমিনি এপিআই কি রিমুভ করা হয়েছে।", "success");
+    setShowSettings(false);
   };
 
   const executeAction = async (payload: any): Promise<string> => {
@@ -165,67 +186,62 @@ export const AICopilot: React.FC<AICopilotProps> = ({
           role: "banned",
           isBanned: true
         });
-        const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি ব্যান বা লক করা হয়েছে।`;
-        logEvent(msg, "success");
-        addToast(msg, "success");
 
         // Fire real security alert
         await addDoc(collection(db, "security_alerts"), {
           userPhone: cleanPhone,
           userName: targetUser.fullName || "Unknown",
-          issue: "এআই এডমিন দ্বারা সন্দেহজনক কার্যকলাপের কারণে অ্যাকাউন্টটি ব্যান করা হয়েছে",
-          severity: "high",
-          timestamp: new Date().toISOString(),
-          status: "active",
-          deviceId: targetUser.deviceId || "DEV_AUTO"
+          issue: "এআই এডমিন দ্বারা অ্যাকাউন্ট লক করা হয়েছে।",
+          timestamp: new Date()
         });
 
+        const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি ব্যান বা লক করা হয়েছে।`;
+        logEvent(msg, "success");
+        addToast(msg, "success");
         return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
-      } 
-      
+      }
+
       else if (action === "UNBAN_USER") {
         const { phone } = payload;
         if (!phone) throw new Error("মোবাইল নম্বর দেওয়া হয়নি।");
         const cleanPhone = phone.trim();
+        
         const targetUser = allUsers.find(u => u.phone === cleanPhone || u.phoneNumber === cleanPhone);
         if (!targetUser) {
           throw new Error(`মোবাইল নম্বর ${cleanPhone} সহ কোনো কাস্টমার অ্যাকাউন্ট খুঁজে পাওয়া যায়নি।`);
         }
         
         await updateDoc(doc(db, "users", targetUser.uid || targetUser.id), {
-          role: "customer",
+          role: "user",
           isBanned: false
         });
-        const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি আনব্যান করা হয়েছে।`;
+
+        const msg = `গ্রাহক ${targetUser.fullName || "ব্যবহারকারী"} (${cleanPhone}) অ্যাকাউন্টটি সফলভাবে আনলক করা হয়েছে।`;
         logEvent(msg, "success");
         addToast(msg, "success");
         return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
-      } 
-      
+      }
+
       else if (action === "SET_SECURITY_LEVEL") {
         const { level } = payload;
-        const msg = `নিরাপত্তা ও অ্যান্টি-ফ্রড প্রটেকশন লেভেল পরিবর্তন করে "${level.toUpperCase()}" করা হয়েছে।`;
+        const protectionRef = doc(db, "security_settings", "protection_level");
+        await updateDoc(protectionRef, { mode: level });
+        const msg = `সিস্টেম নিরাপত্তা ফায়ারওয়াল মোড পরিবর্তন করে "${level}" করা হয়েছে।`;
         logEvent(msg, "success");
         addToast(msg, "success");
         return `✓ সফলভাবে সম্পন্ন হয়েছে!\n${msg}`;
-      } 
-      
-      else if (action === "CHAT_REPLY") {
-        return payload.reply || "আমি কিভাবে সাহায্য করতে পারি বলুন?";
-      } 
-      
-      else {
-        throw new Error("অজানা এআই কমান্ড ফরম্যাট।");
       }
+
+      return "অনুরোধ করা কমান্ড অ্যাকশনটি সম্পন্ন করার কোনো উপায় খুঁজে পাওয়া যায়নি।";
     } catch (err: any) {
-      const errMsg = `অ্যাকশন এক্সিকিউশন ব্যর্থ হয়েছে: ${err.message}`;
-      logEvent(errMsg, "error");
-      addToast(err.message, "error");
-      return `❌ ত্রুটি: ${err.message}`;
+      const errMsg = err.message || err.toString();
+      logEvent(`অ্যাকশন ব্যর্থ হয়েছে: ${errMsg}`, "error");
+      addToast(`অ্যাকশন ব্যর্থ হয়েছে: ${errMsg}`, "error");
+      return `❌ অ্যাকশন ব্যর্থ হয়েছে: ${errMsg}`;
     }
   };
 
-  // Safe manual regex-based fallback parser in case API keys are missing/rate-limited
+  // Safe manual regex-based fallback parser in case API keys are missing/rate-limited or running as static Vercel build
   const parsePromptLocally = (text: string): any => {
     const clean = text.toLowerCase().trim();
 
@@ -286,13 +302,213 @@ export const AICopilot: React.FC<AICopilotProps> = ({
       if (clean.includes("permissive") || clean.includes("নমনীয়")) return { action: "SET_SECURITY_LEVEL", level: "permissive" };
     }
 
+    // Intelligent Bengali response matching for live system stats (Orders count)
+    if (
+      clean.includes("মোট অর্ডার") || 
+      clean.includes("অর্ডার কত") || 
+      clean.includes("টোটাল অর্ডার") || 
+      clean.includes("অর্ডার সংখ্যা") || 
+      clean.includes("সব অর্ডার") || 
+      clean.includes("অর্ডারের সংখ্যা") || 
+      clean.includes("how many orders") || 
+      clean.includes("total orders") || 
+      clean.includes("order statistics") || 
+      clean.includes("অর্ডার স্ট্যাটিস্টিক")
+    ) {
+      const activeOrdersCount = orders?.length || 0;
+      const oNew = orders?.filter(o => o.status === "নতুন").length || 0;
+      const oPrice = orders?.filter(o => o.status === "মূল্য নির্ধারণ").length || 0;
+      const oVerify = orders?.filter(o => o.status === "পেমেন্ট যাচাই").length || 0;
+      const oProcess = orders?.filter(o => o.status === "প্রক্রিয়াধীন").length || 0;
+      const oComplete = orders?.filter(o => o.status === "সম্পন্ন").length || 0;
+      const oCancel = orders?.filter(o => o.status === "বাতিল").length || 0;
+
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `📊 **টাইমমেট বিডি অর্ডার স্ট্যাটিস্টিকস (লাইভ ডাটাবেজ):**\n• **মোট অর্ডারের সংখ্যা:** ${activeOrdersCount} টি\n• 🆕 **নতুন বা আনপেইড অর্ডার:** ${oNew} টি\n• 💰 **মূল্য নির্ধারণ স্ট্যাটাস:** ${oPrice} টি\n• 🔍 **পেমেন্ট যাচাইকরণাধীন:** ${oVerify} টি\n• ⚙️ **প্রক্রিয়াধীন (Processing):** ${oProcess} টি\n• ✅ **সম্পন্ন বা সফল অর্ডার:** ${oComplete} টি\n• ❌ **বাতিলকৃত অর্ডার:** ${oCancel} টি\n\n*টিপস: আপনি সরাসরি যেকোনো অর্ডারের দাম সেট করতে পারেন। যেমন: "ORD-109 এর মূল্য ৫০০ টাকা সেট করুন"*`
+      };
+    }
+
+    // Pending or Active Orders list
+    if (
+      clean.includes("পেন্ডিং") || 
+      clean.includes("নতুন অর্ডারগুলো") || 
+      clean.includes("চলতি অর্ডার") || 
+      clean.includes("চলমান অর্ডার") || 
+      clean.includes("সক্রিয় অর্ডার") || 
+      clean.includes("pending order") || 
+      clean.includes("new order") || 
+      clean.includes("active order")
+    ) {
+      const pending = orders?.filter(o => o.status === "নতুন" || o.status === "প্রক্রিয়াধীন" || o.status === "পেমেন্ট যাচাই") || [];
+      if (pending.length === 0) {
+        return {
+          action: "CHAT_REPLY",
+          isMatchedLocal: true,
+          reply: "📋 বর্তমানে কোনো পেন্ডিং বা চলমান অর্ডার নেই! ডাটাবেজের সকল অর্ডার সফলভাবে সম্পন্ন বা বাতিল করা হয়েছে।"
+        };
+      }
+      const list = pending.slice(0, 6).map(o => "• **ID:** `" + o.id + "` | **কাস্টমার:** " + (o.customerName || "N/A") + " | **স্ট্যাটাস:** " + o.status + " | **চার্জ:** ৳" + (o.charge || 0)).join("\n");
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `📋 **চলতি ও পেন্ডিং অর্ডারসমূহ (লাইভ ডাটা):**\n${list}\n${pending.length > 6 ? `\n*এবং আরও ${pending.length - 6}টি পেন্ডিং অর্ডার তালিকায় রয়েছে।*` : ""}\n\n*মোট পেন্ডিং অর্ডার সংখ্যা: ${pending.length} টি*`
+      };
+    }
+
+    // Revenue / Earnings / Income
+    if (
+      clean.includes("মোট আয়") || 
+      clean.includes("মোট টাকা") || 
+      clean.includes("ইনকাম") || 
+      clean.includes("আয় কত") || 
+      clean.includes("রেভিনিউ") || 
+      clean.includes("কত টাকা") || 
+      clean.includes("total earnings") || 
+      clean.includes("revenue") || 
+      clean.includes("income")
+    ) {
+      const activeOrders = orders || [];
+      const totalRevenue = activeOrders.filter(o => o.status === "সম্পন্ন").reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
+      const pendingRevenue = activeOrders.filter(o => o.status !== "সম্পন্ন" && o.status !== "বাতিল").reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
+      const avgOrder = activeOrders.length ? Math.round(totalRevenue / activeOrders.length) : 0;
+
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `💰 **টাইমমেট বিডি আর্থিক ও রেভিনিউ রিপোর্ট (লাইভ):**\n• 💵 **সফল সম্পন্ন অর্ডার থেকে মোট আয়:** ৳${totalRevenue.toLocaleString()} BDT\n• ⏳ **চলতি ও পেন্ডিং অর্ডার থেকে সম্ভাব্য আয়:** ৳${pendingRevenue.toLocaleString()} BDT\n• 📈 **গড় অর্ডার রেভিনিউ:** ৳${avgOrder.toLocaleString()} BDT\n\n*তথ্যটি সরাসরি রিয়েল-টাইম ক্লাউড ফায়ারস্টোর ডাটাবেজ থেকে হিসেব করা হয়েছে।*`
+      };
+    }
+
+    // Registered Users count & summary
+    if (
+      clean.includes("গ্রাহক") || 
+      clean.includes("ইউজার") || 
+      clean.includes("কাস্টমার") || 
+      clean.includes("কতজন ইউজার") || 
+      clean.includes("users count") ||
+      clean.includes("total users")
+    ) {
+      const activeUsersCount = allUsers?.length || 0;
+      const bannedUsers = allUsers?.filter(u => u.isBanned).length || 0;
+      const normalUsers = activeUsersCount - bannedUsers;
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `👥 **টাইমমেট বিডি কাস্টমার ডাটাবেজ তথ্য (লাইভ):**\n• 📊 **মোট নিবন্ধিত গ্রাহক সংখ্যা:** ${activeUsersCount} জন\n• 🟢 **সক্রিয় বা স্বাভাবিক ইউজার:** ${normalUsers} জন\n• 🔴 **ব্লক বা ব্যানকৃত ইউজার:** ${bannedUsers} জন\n\n*আপনি যেকোনো ইউজারকে ব্যান করতে পারেন। যেমন লিখুন: "ব্যান করো ০১৮২৩৭৭৪৬১২"*`
+      };
+    }
+
+    // Coin/Recharge/Balance block
+    if (
+      clean.includes("কয়েন") || 
+      clean.includes("কয়েন") || 
+      clean.includes("রিচার্জ") || 
+      clean.includes("coin") || 
+      clean.includes("balance") || 
+      clean.includes("ব্যালেন্স")
+    ) {
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `🪙 **টাইমমেট বিডি কয়েন ও রিচার্জ সিস্টেম:**\n• 🔄 **কয়েন কেন ব্যবহৃত হয়:** গ্রাহকদের ঘড়ির সময় সিঙ্ক করার সময় প্রতি ক্লিকে ২ কয়েন করে রিচার্জ বা ব্যালেন্স থেকে কাটা হয়।\n• 💳 **রিচার্জ ও পেমেন্ট রিকোয়েস্ট:** ইউজার কয়েন শেষ হয়ে গেলে নগদ বা বিকাশ পেমেন্ট রিকোয়েস্ট জমা দেয়। এডমিন প্যানেলের হোম স্ক্রিন থেকে তা এপ্রুভ করলে ইউজারের ব্যালেন্সে সরাসরি কয়েন যোগ হয়ে যায়!\n• 🛠️ **অ্যাডমিন কন্ট্রোল:** আপনি সরাসরি যেকোনো গ্রাহকের প্রোফাইল এডিট করে কয়েন ব্যালেন্স ম্যানুয়ালি পরিবর্তন করতে পারেন।`
+      };
+    }
+
+    // Security Hub
+    if (
+      clean.includes("নিরাপত্তা") || 
+      clean.includes("সিকিউরিটি") || 
+      clean.includes("সুরক্ষা") || 
+      clean.includes("ডিভাইস লক") || 
+      clean.includes("অ্যান্টি ফ্রড") || 
+      clean.includes("anti-fraud") || 
+      clean.includes("strict")
+    ) {
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `🛡️ **টাইমমেট বিডি নিরাপত্তা প্রটেকশন ও অ্যান্টি-ফ্রড হাব:**\nআমাদের সিস্টেমে নিরাপত্তা রক্ষায় কয়েকটি অটোমেটেড লেয়ার রয়েছে:\n\n১. 📱 **মাল্টি-ডিভাইস ডিটেকশন (Multi-Device Control):** একই অ্যাকাউন্ট একাধিক ফোনে ব্যবহার করা হলে সিস্টেম রিয়েল-টাইমে তা সনাক্ত করে লক করে দেয়।\n২. 🔑 **মোবাইল ওটিপি ভেরিফিকেশন (OTP Login):** সুরক্ষিত লেনদেন ও অ্যাকাউন্ট সিকিউরিটির জন্য সাইনআপ এবং মোবাইল ব্যাংকিং পেমেন্ট উত্তোলনে ওটিপি বাধ্যতামূলক।\n৩. ⚡ **সিকিউরিটি মোডস (Security Modes):**\n   - **নমনীয় (Permissive):** সাধারণ সিকিউরিটি চেক সচল।\n   - **স্বাভাবিক (Standard):** ডিফল্ট সিকিউরিটি যেখানে ডিভাইস সিঙ্ক ও ফায়ারওয়াল সচল।\n   - **কঠোর (Strict):** যেকোনো আন-অথরাইজড অ্যাডমিন অ্যাকশন বা অতিরিক্ত রিকোয়েস্টের কারণে আইপি সাময়িকভাবে স্বয়ংক্রিয় ব্লক হয়।`
+      };
+    }
+
+    // Office Location
+    if (
+      clean.includes("বাংলাদেশ") || 
+      clean.includes("ঠিকানা") || 
+      clean.includes("কোথায়") || 
+      clean.includes("অফিস") || 
+      clean.includes("অবস্থান") || 
+      clean.includes("address") || 
+      clean.includes("dhaka") || 
+      clean.includes("office")
+    ) {
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: "🏢 **টাইমমেট বিডি কার্যালয় ও অবস্থান:**\nআমাদের প্রধান কার্যালয় ঢাকা, বাংলাদেশে অবস্থিত। আমরা সারা দেশে ওয়্যারলেস জিপিএস টাইম-সিঙ্ক এবং অটোমেটিক সময় মিলানো ঘড়ি বিতরণ করি। বিস্তারিত সহায়তার জন্য অ্যাডমিন প্রোফাইলের সাপোর্ট সেন্টারে যোগাযোগ করুন।"
+      };
+    }
+
+    // Payments
+    if (
+      clean.includes("বিকাশ") || 
+      clean.includes("রকেট") || 
+      clean.includes("নগদ") || 
+      clean.includes("পেমেন্ট") || 
+      clean.includes("টাকা") || 
+      clean.includes("উত্তোলন") || 
+      clean.includes("bkash") || 
+      clean.includes("nagad") || 
+      clean.includes("payment")
+    ) {
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: "💳 **টাইমমেট পেমেন্ট ভেরিফিকেশন ও ট্র্যাকিং:**\nটাইমমেট বিডিতে বিকাশ ও নগদের মাধ্যমে সুরক্ষিত লেনদেন করা হয়। সকল মোবাইল পেমেন্ট টপআপ রিকোয়েস্ট সরাসরি আপনার লাইভ অ্যাডমিন প্যানেলে জমা হয়। কোনো পেমেন্ট সংক্রান্ত জটিলতা হলে ড্যাশবোর্ডের পেমেন্ট হিস্ট্রি চেক করুন।"
+      };
+    }
+
+    // Today statistics
+    if (
+      clean.includes("আজকের") || 
+      clean.includes("আজকে") || 
+      clean.includes("today")
+    ) {
+      const activeOrders = orders || [];
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayOrders = activeOrders.filter(o => o.createdAt && o.createdAt.includes(todayStr));
+      const todayRevenue = todayOrders.filter(o => o.status === "সম্পন্ন").reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: `📅 **আজকের দিনচিত্র রিপোর্ট (লাইভ ডাটাবেজ):**\n• আজকের মোট অর্ডারের সংখ্যা: ${todayOrders.length} টি\n• সম্পন্ন অর্ডার থেকে আজকের রেভিনিউ: ৳${todayRevenue.toLocaleString()} BDT\n\n*সরাসরি ফায়ারস্টোর ডাটাবেজ ট্র্যাকার থেকে সংকলিত।*`
+      };
+    }
+
     // Smart Conversational fallback answers for common greetings
-    const greetings = ["hi", "hello", "হাই", "হ্যালো", "হেই", "hey", "কেমন আছো", "salam", "সালাম", "আসসালামু আলাইকুম", "কেমন আছেন", "কেমন আছ"];
+    const greetings = ["hi", "hello", "হাই", "হ্যালো", "হেই", "hey", "কেমন আছো", "salam", "সালাম", "আসসালামু আলাইকুম", "কেমন আছেন", "কেমন আছ", "কে তুমি", "তুমি কে", "who are you", "chatbot", "copilot", "কো-পাইলট", "এআই"];
     const isGreeting = greetings.some(g => clean.includes(g));
     if (isGreeting) {
       return {
         action: "CHAT_REPLY",
+        isMatchedLocal: true,
         reply: "আসসালামু আলাইকুম! আমি টাইমমেট বিডি এআই অ্যাডমিন কো-পাইলট। আমি আপনার টাইমমেট এডমিন সিস্টেম পরিচালনা করতে সাহায্য করতে পারি। বলুন আজ আপনাকে কিভাবে সাহায্য করতে পারি?"
+      };
+    }
+
+    // Thanks
+    if (
+      clean.includes("ধন্যবাদ") || 
+      clean.includes("thanks") || 
+      clean.includes("thank you") || 
+      clean.includes("থ্যাংকস")
+    ) {
+      return {
+        action: "CHAT_REPLY",
+        isMatchedLocal: true,
+        reply: "আপনাকেও অসংখ্য ধন্যবাদ! টাইমমেট বিডির যেকোনো প্রশাসনিক বা পরিচালনা সংক্রান্ত সমস্যায় আমাকে নির্দ্বিধায় জিজ্ঞেস করতে পারেন। আপনার দিনটি শুভ হোক! ❤️"
       };
     }
 
@@ -302,19 +518,15 @@ export const AICopilot: React.FC<AICopilotProps> = ({
     if (isHelp) {
       return {
         action: "CHAT_REPLY",
-        reply: `আমি টাইমমেট বিডি-র নিচের প্রশাসনিক কাজগুলো করতে পারি:
-১. **অর্ডারের দাম নির্ধারণ**: লিখুন "ORD-XXXX এর মূল্য ৫০০ টাকা করুন"
-২. **অর্ডারের স্ট্যাটাস পরিবর্তন**: লিখুন "ORD-XXXX সম্পন্ন করুন" বা "ORD-XXXX বাতিল করুন"
-৩. **ইউজার ব্যান/ব্লক করা**: লিখুন "ইউজার ০১৮২৩৭৭৪৬১২ ব্যান করুন"
-৪. **নিরাপত্তা লেভেল সেট করা**: লিখুন "নিরাপত্তা লেভেল strict করুন"
-
-এছাড়াও যেকোনো সাধারণ প্রশ্ন করতে পারেন, আমি জেমিনি এআই ও গুগল সার্চের মাধ্যমে উত্তর দেবো!`
+        isMatchedLocal: true,
+        reply: `🤖 **টাইমমেট এআই অ্যাডমিন কো-পাইলট নির্দেশিকা:**\nআমি আপনার বাংলা বা ইংরেজি নির্দেশ বুঝে সরাসরি ডাটাবেজের ওপর কাজ করতে পারি। নিচে কিছু উদাহরণ দেওয়া হলো:\n\n১. 💰 **অর্ডারের চার্জ বা দাম সেট করতে:**\n   - লিখুন: "ORD-109 এর মূল্য ৫০০ টাকা সেট করো"\n   - অথবা: "set price of ord-105 to 250"\n\n২. ⚙️ **অর্ডারের স্ট্যাটাস পরিবর্তন করতে:**\n   - লিখুন: "ORD-112 সম্পন্ন করুন"\n   - অথবা: "ord-104 বাতিল করো"\n\n৩. 🔴 **কোনো ইউজার অ্যাকাউন্ট ব্যান বা লক করতে:**\n   - লিখুন: "ব্যান করো ০১৮২৩৭৭৪৬১২"\n   - অথবা: "block user 01712345678"\n\n৪. 🔓 **কোনো অ্যাকাউন্ট আনব্যান করতে:**\n   - লিখুন: "আনব্যান করো ০১৮২৩৭৭৪৬১২"\n\n৫. 🛡️ **নিরাপত্তা লেভেল পরিবর্তন করতে:**\n   - লিখুন: "নিরাপত্তা লেভেল strict করো"\n   - অথবা: "security standard করে দিন"\n\nএছাড়াও আপনি সিস্টেমের পরিসংখ্যান জানতে চাইতে পারেন। যেমন: "মোট অর্ডার কতটি?", "আজকের মোট ইনকাম কত?", "কয়েন সিস্টেম কি?" ইত্যাদি!`
       };
     }
 
     // fallback chat
     return {
       action: "CHAT_REPLY",
+      isMatchedLocal: false,
       reply: `আমি আপনার বার্তাটি বুঝতে পেরেছি কিন্তু সরাসরি অ্যাকশন মডিউল খুঁজে পাইনি। আপনি যদি কোনো সাধারণ জিজ্ঞাসা বা কথোপকথন করতে চান, তাহলে আমার কাছে সরাসরি প্রশ্ন করতে পারেন। আমি উত্তর দেওয়ার চেষ্টা করব!`
     };
   };
@@ -550,48 +762,82 @@ Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id
       } catch (fallbackErr) {
         let resultText = "";
         
-        // Check if user has VITE_GEMINI_API_KEY for a client-side direct fallback call
-        const clientApiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-        if (clientApiKey) {
-          try {
-            logEvent("ক্লায়েন্ট-সাইড জেমিনি এপিআই সংযোগ করা হচ্ছে...", "info");
-            const directResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${clientApiKey}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: userPrompt }] }]
-              })
-            });
-            if (directResponse.ok) {
-              const directData = await directResponse.json();
-              resultText = directData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // Check if user has saved userApiKey in localStorage or has VITE_GEMINI_API_KEY for direct calls
+        const apiKeyToUse = userApiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+        if (apiKeyToUse) {
+          logEvent("ক্লায়েন্ট-সাইড জেমিনি এপিআই সংযোগ করা হচ্ছে...", "info");
+          const modelsToTry = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b"];
+          for (const modelName of modelsToTry) {
+            try {
+              const directResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKeyToUse}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: userPrompt }] }]
+                })
+              });
+              if (directResponse.ok) {
+                const directData = await directResponse.json();
+                const text = directData.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                  resultText = text;
+                  logEvent(`সফলভাবে ক্লায়েন্ট-সাইড মডেল (${modelName}) দিয়ে রেসপন্স জেনারেট করা হয়েছে।`, "success");
+                  break;
+                }
+              }
+            } catch (directErr) {
+              console.warn(`Direct client model ${modelName} error:`, directErr);
             }
-          } catch (directErr) {
-            console.error("Direct client Gemini API error:", directErr);
           }
         }
 
         if (!resultText) {
-          const isVercel = window.location.hostname.includes("vercel.app");
+          const clean = userPrompt.toLowerCase().trim();
           
-          // Even on Vercel, try checking if local parser can generate a reply for standard requests
+          // Let's check our local rule-based NLP assistant
           const localParsed = parsePromptLocally(userPrompt);
           if (localParsed && localParsed.reply && !localParsed.reply.includes("অ্যাকশন মডিউল খুঁজে পাইনি")) {
             resultText = localParsed.reply;
-          } else if (isVercel) {
-            resultText = `⚠️ **এআই কো-পাইলট অ্যাক্টিভেশন নির্দেশনা (Vercel Host):**
+          } else {
+            // Intelligent contextual matching for general/conversation inputs if AI keys are offline
+            if (clean.includes("বাংলাদেশ") || clean.includes("ঠিকানা") || clean.includes("কোথায়") || clean.includes("অফিস") || clean.includes("অবস্থান") || clean.includes("কোথায়") || clean.includes("address") || clean.includes("dhaka") || clean.includes("office")) {
+              resultText = "🏢 **টাইমমেট বিডি কার্যালয় ও অবস্থান:**\nআমাদের প্রধান কার্যালয় ঢাকা, বাংলাদেশে অবস্থিত। আমরা সারা দেশে ওয়্যারলেস জিপিএস টাইম-সিঙ্ক এবং অটোমেটিক সময় মিলানো ঘড়ি বিতরণ করি। বিস্তারিত সহায়তার জন্য অ্যাডমিন প্রোফাইলের সাপোর্ট সেন্টারে যোগাযোগ করুন।";
+            } else if (clean.includes("বিকাশ") || clean.includes("রকেট") || clean.includes("নগদ") || clean.includes("পেমেন্ট") || clean.includes("টাকা") || clean.includes("উত্তোলন") || clean.includes("bKash") || clean.includes("nagad") || clean.includes("payment")) {
+              resultText = "💳 **টাইমমেট পেমেন্ট ভেরিফিকেশন ও ট্র্যাকিং:**\nটাইমমেট বিডিতে বিকাশ ও নগদের মাধ্যমে সুরক্ষিত লেনদেন করা হয়। সকল মোবাইল পেমেন্ট টপআপ রিকোয়েস্ট সরাসরি আপনার লাইভ অ্যাডমিন প্যানেলে জমা হয়। কোনো পেমেন্ট সংক্রান্ত জটিলতা হলে ড্যাশবোর্ডের পেমেন্ট হিস্ট্রি চেক করুন।";
+            } else if (clean.includes("ঘড়ি") || clean.includes("সময়") || clean.includes("সিঙ্ক") || clean.includes("টাইম") || clean.includes("sync") || clean.includes("clock") || clean.includes("time")) {
+              resultText = "🕰️ **ডিভাইস ও সময় সমন্বয় (Time Synchronization):**\nআমাদের উন্নত ঘড়িগুলো অটোমেটিক ইন্টারনেট এনটিপি (NTP) টাইম প্রটোকল ব্যবহার করে সঠিক সময় দেখায়। প্রতিবার গ্রাহকের ঘড়ির সময় সিঙ্ক করতে ২ কয়েন করে রিচার্জ বা ব্যালেন্স থেকে কাটা হয়।";
+            } else if (clean.includes("কো-পাইলট") || clean.includes("এআই") || clean.includes("assistant") || clean.includes("copilot") || clean.includes("chatbot") || clean.includes("তুমি কে") || clean.includes("কে তুমি") || clean.includes("who are you")) {
+              resultText = "🤖 আমি টাইমমেট বিডি-র ডেডিকেটেড এআই অ্যাডমিন কো-পাইলট। আমি অ্যাডমিন প্যানেল থেকে অর্ডার মূল্য পরিবর্তন, স্ট্যাটাস আপডেট, ইউজার ব্লক/আনব্লক এবং রিয়েল-টাইম রিপোর্ট জেনারেট করতে পারি।";
+            } else if (clean.includes("ধন্যবাদ") || clean.includes("thanks") || clean.includes("thank you") || clean.includes("থ্যাংকস")) {
+              resultText = "আপনাকেও অসংখ্য ধন্যবাদ! টাইমমেট বিডির যেকোনো প্রশাসনিক বা পরিচালনা সংক্রান্ত সমস্যায় আমাকে নির্দ্বিধায় জিজ্ঞেস করতে পারেন। আপনার দিনটি শুভ হোক! ❤️";
+            } else if (clean.includes("আজকের") || clean.includes("আজকে") || clean.includes("today")) {
+              const activeOrders = orders || [];
+              const todayStr = new Date().toISOString().split('T')[0];
+              const todayOrders = activeOrders.filter(o => o.createdAt && o.createdAt.includes(todayStr));
+              const todayRevenue = todayOrders.filter(o => o.status === "সম্পন্ন").reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
+              resultText = `📅 **আজকের দিনচিত্র রিপোর্ট (লাইভ ডাটাবেজ):**\n• আজকের মোট অর্ডারের সংখ্যা: ${todayOrders.length} টি\n• সম্পন্ন অর্ডার থেকে আজকের রেভিনিউ: ৳${todayRevenue.toLocaleString()} BDT\n\n*সরাসরি ফায়ারস্টোর ডাটাবেজ ট্র্যাকার থেকে সংকলিত।*`;
+            } else {
+              // General conversational answer with instructions on how to activate Gemini on Vercel
+              const isVercel = window.location.hostname.includes("vercel.app");
+              if (isVercel) {
+                resultText = `⚠️ **এআই কো-পাইলট অ্যাক্টিভেশন নির্দেশনা (Vercel Host):**
 আপনার টাইমমেট প্রজেক্টটি Vercel-এ হোস্ট করা আছে। Vercel একটি স্ট্যাটিক সাইট হিসেবে রান করায় এক্সপ্রেস ব্যাকএন্ড সার্ভার এপিআইগুলো সেখানে এভেইলেবল থাকে না।
 
-**কিভাবে ১ মিনিটে এআই কো-পাইলট সচল করবেন:**
-১. আপনার Vercel ড্যাশবোর্ডে গিয়ে এই প্রজেক্টের **Settings > Environment Variables** এ যান।
-২. নতুন এনভায়রনমেন্ট ভেরিয়েবল যোগ করুন:
-   - **Key**: \`VITE_GEMINI_API_KEY\`
-   - **Value**: \`your_actual_gemini_api_key_here\` *(আপনার গুগল জেমিনি এপিআই কি)*
-৩. ভেরিয়েবলটি যোগ করার পর প্রজেক্টটি ড্যাশবোর্ড থেকে পুনরায় **Redeploy** করুন।
+**কিভাবে চ্যাটবটকে পুরোপুরি সক্রিয় করবেন:**
+১. এই উইন্ডোর উপরে ডানদিকে থাকা **⚙️ এপিআই কি** বাটনে ক্লিক করুন।
+২. আপনার গুগল জেমিনি এপিআই কি পেস্ট করে সংরক্ষণ করুন (এটি আপনার ব্রাউজারে সুরক্ষিত থাকবে)।
+৩. অথবা Vercel ড্যাশবোর্ডে গিয়ে এই প্রজেক্টের Environment Variables এ **VITE_GEMINI_API_KEY** নাম দিয়ে আপনার জেমিনি কি সেট করুন।
 
-*(উল্লেখ্য: লোকালহোস্ট এবং এআই স্টুডিওতে রিয়েল-টাইম এআই ও গুগল সার্চ গ্রাউন্ডিং অলরেডি ১০০% সচল রয়েছে।)*`;
-          } else {
-            resultText = await executeAction(localParsed);
+*উল্লেখ্য: আপনি আমাদের সিস্টেমের পরিসংখ্যান সরাসরি বাংলায় জিজ্ঞাসা করতে পারেন (যেমন: 'মোট অর্ডার কতটি?', 'চলতি অর্ডারগুলো দেখাও', 'আজকের মোট ইনকাম কত?'), যা ক্লায়েন্ট সাইড থেকে নিখুঁতভাবে জবাব দেবে!*`;
+              } else {
+                resultText = `আমি আপনার বার্তাটি বুঝতে পেরেছি কিন্তু এআই মডেল সংযোগ সাময়িকভাবে ব্যাহত হয়েছে। 
+আপনি আমাদের এডমিন প্যানেলের রিয়েল-টাইম পরিসংখ্যান বাংলায় জিজ্ঞাসা করতে পারেন। যেমন:
+• "মোট অর্ডার কতটি?"
+• "পেন্ডিং অর্ডার দেখাও"
+• "আজকের মোট ইনকাম কত?"
+• "নিরাপত্তা প্রটেকশন হাব কি?"`;
+              }
+            }
           }
         }
 
@@ -637,6 +883,16 @@ Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id
         <div className="flex flex-wrap items-center gap-4">
           <button
             type="button"
+            onClick={() => setShowSettings(!showSettings)}
+            className={`flex items-center gap-1.5 px-3 py-2 ${showSettings ? "bg-indigo-600/30 text-indigo-200 border-indigo-500/50" : "bg-white/5 text-indigo-300 border-white/10"} hover:bg-white/10 border rounded-xl text-xs font-bold hover:text-white transition-all cursor-pointer`}
+            title="এআই এপিআই কি সেটিংস"
+          >
+            <Settings size={13} className={showSettings ? "animate-spin-slow text-indigo-400" : ""} />
+            <span>⚙️ এপিআই কি</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleClearHistory}
             className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-indigo-300 hover:text-white transition-all cursor-pointer"
             title="চ্যাট হিস্ট্রি রিসেট করুন"
@@ -661,6 +917,54 @@ Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id
           </div>
         </div>
       </div>
+
+      {/* API Key configuration drawer */}
+      {showSettings && (
+        <div className="mt-4 p-4 bg-white/5 rounded-2xl border border-indigo-500/30 text-xs text-indigo-100 transition-all duration-300">
+          <div className="flex justify-between items-center mb-2.5">
+            <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+              <Settings size={14} className="animate-spin-slow" />
+              ক্লায়েন্ট-সাইড জেমিনি এপিআই কি সেটিংস (Vercel ও ব্যাকআপের জন্য)
+            </span>
+            <button 
+              onClick={() => setShowSettings(false)}
+              className="text-gray-400 hover:text-white font-bold"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mb-3 text-indigo-200/70 leading-relaxed text-[11px]">
+            Vercel-এ হোস্ট করার সময় অথবা ব্যাকএন্ড সার্ভার ও কোটা সংক্রান্ত জটিলতা এড়াতে আপনি আপনার নিজস্ব **Gemini API Key** সংরক্ষণ করতে পারেন। কি-টি সম্পূর্ণ ক্লায়েন্ট-সাইডে আপনার ব্রাউজারের লোকাল স্টোরেজে সুরক্ষিত থাকবে।
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="password"
+              placeholder="AIzaSy..."
+              value={userApiKey}
+              onChange={(e) => setUserApiKey(e.target.value)}
+              className="flex-1 bg-black/40 border border-indigo-500/20 rounded-xl px-4 py-2.5 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
+            />
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleSaveApiKey}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+              >
+                সংরক্ষণ করুন
+              </button>
+              {userApiKey && (
+                <button
+                  type="button"
+                  onClick={handleClearApiKey}
+                  className="bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 font-bold px-4 py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+                >
+                  মুছে ফেলুন
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
