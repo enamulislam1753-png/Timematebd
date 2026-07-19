@@ -555,6 +555,45 @@ export const AICopilot: React.FC<AICopilotProps> = ({
     setIsLoading(true);
     logEvent(`প্রম্পট ইনপুট: "${userPrompt}"`, "info");
 
+    const getContextStr = () => {
+      const activeUsersCount = allUsers?.length || 0;
+      const activeOrdersCount = orders?.length || 0;
+      
+      const conciseOrders = orders?.slice(0, 40).map(o => ({
+        id: o.id,
+        customer: o.customerName || o.customerPhone || "N/A",
+        status: o.status || "নতুন",
+        charge: o.charge || 0,
+        service: o.serviceType || o.service || "সাধারণ",
+        date: o.createdAt || "N/A"
+      }));
+
+      const conciseUsers = allUsers?.slice(0, 45).map(u => ({
+        name: u.fullName || u.name || "N/A",
+        phone: u.phone || "N/A",
+        banned: u.isBanned ? "Yes" : "No",
+        coins: u.coins || u.balance || 0,
+        role: u.role || "user"
+      }));
+
+      return `TimeMate BD Admin Panel Live Context:
+- Total registered database users: ${activeUsersCount}
+- Total registered customer orders: ${activeOrdersCount}
+
+Detailed Recent Orders (Last 40):
+${JSON.stringify(conciseOrders)}
+
+Detailed Registered Users (Last 45):
+${JSON.stringify(conciseUsers)}
+
+Operational Stats:
+- Completed Orders: ${orders?.filter(o => o.status === "সম্পন্ন").length || 0}
+- Pending/Processing: ${orders?.filter(o => o.status === "প্রক্রিয়াধীন" || o.status === "নতুন" || o.status === "পেমেন্ট যাচাই").length || 0}
+- Total Earnings: ${orders?.filter(o => o.status === "সম্পন্ন").reduce((sum, o) => sum + (Number(o.charge) || 0), 0)} BDT
+- Total Banned Users: ${allUsers?.filter(u => u.isBanned).length || 0}
+`;
+    };
+
     try {
       // 1. Check local parser FIRST to see if we can execute local commands or answer common greetings/help requests immediately!
       const localParsed = parsePromptLocally(userPrompt);
@@ -574,45 +613,13 @@ export const AICopilot: React.FC<AICopilotProps> = ({
         return;
       }
 
-      // Check for common greetings or help keywords manually for instant, lightweight execution
-      const cleanInput = userPrompt.toLowerCase().trim();
-      const greetings = ["hi", "hello", "হাই", "হ্যালো", "হেই", "hey", "কেমন আছো", "salam", "সালাম", "আসসালামু আলাইকুম", "কেমন আছেন", "কেমন আছ"];
-      const isGreeting = greetings.some(g => cleanInput.includes(g));
-
-      const helpKeywords = ["help", "হেল্প", "সাহায্য", "কাজ", "কমান্ড", "কি করতে পারো", "সাপোর্ট", "ফিচার", "নির্দেশ"];
-      const isHelp = helpKeywords.some(hk => cleanInput.includes(hk));
-
-      if (isGreeting || isHelp) {
-        const reply = isGreeting 
-          ? "আসসালামু আলাইকুম! আমি টাইমমেট বিডি এআই অ্যাডমিন কো-পাইলট। আমি আপনার টাইমমেট এডমিন সিস্টেম পরিচালনা করতে সাহায্য করতে পারি। যেমন অর্ডারের মূল্য সেট করা, গ্রাহক ব্যান করা ইত্যাদি। বলুন আজ আপনাকে কিভাবে সাহায্য করতে পারি?"
-          : `আমি টাইমমেট বিডি-র নিচের প্রশাসনিক কাজগুলো করতে পারি:
-১. **অর্ডারের দাম নির্ধারণ**: লিখুন "ORD-XXXX এর মূল্য ৫০০ টাকা করুন"
-২. **অর্ডারের স্ট্যাটাস পরিবর্তন**: লিখুন "ORD-XXXX সম্পন্ন করুন" বা "ORD-XXXX বাতিল করুন"
-৩. **ইউজার ব্যান/ব্লক করা**: লিখুন "ইউজার ০১৮২৩৭৭৪৬১২ ব্যান করুন"
-৪. **নিরাপত্তা লেভেল সেট করা**: লিখুন "নিরাপত্তা লেভেল strict করুন"
-
-এছাড়াও যেকোনো সাধারণ প্রশ্ন করতে পারেন, আমি জেমিনি এআই ও গুগল সার্চের মাধ্যমে উত্তর দেবো!`;
-
-        setChatHistory((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(),
-            sender: "ai",
-            text: reply,
-            timestamp: new Date()
-          }
-        ]);
-        setIsLoading(false);
-        return;
-      }
-
       // Build conversation history string to include in the context
       const chatContext = chatHistory
         .slice(-8)
         .map((m) => `${m.sender === "admin" ? "Human Admin" : "AI Co-Pilot"}: ${m.text}`)
         .join("\n");
 
-      // 2. Not a simple local action or greeting. Proceed to Server-Side Gemini safety proxy
+      // 2. Not a simple local action. Proceed to Server-Side Gemini safety proxy
       const response = await fetch("/api/play-proxy-gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -669,12 +676,7 @@ Rules:
       if (parsedPayload.action === "CHAT_REPLY") {
         logEvent("সার্ভার-সাইড গুগল এআই চ্যাট এবং সার্চ ক্লাউড একটিভ করা হচ্ছে...", "info");
         
-        const activeUsersCount = allUsers?.length || 0;
-        const activeOrdersCount = orders?.length || 0;
-        const contextStr = `TimeMate BD Admin Panel Live Context:
-- Total registered database users: ${activeUsersCount}
-- Total registered customer orders: ${activeOrdersCount}
-Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id, customerName: o.customerName, status: o.status, charge: o.charge })))}`;
+        const contextStr = getContextStr();
 
         const historyParam = chatHistory.slice(-8).map(m => ({
           role: m.sender === "admin" ? "user" : "model",
@@ -718,12 +720,7 @@ Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id
     } catch (err: any) {
       console.warn("AI routing exception, using fallback search chat.", err);
       try {
-        const activeUsersCount = allUsers?.length || 0;
-        const activeOrdersCount = orders?.length || 0;
-        const contextStr = `TimeMate BD Admin Panel Live Context:
-- Total registered database users: ${activeUsersCount}
-- Total registered customer orders: ${activeOrdersCount}
-Recent Orders context: ${JSON.stringify(orders?.slice(0, 5).map(o => ({ id: o.id, customerName: o.customerName, status: o.status, charge: o.charge })))}`;
+        const contextStr = getContextStr();
 
         const historyParam = chatHistory.slice(-8).map(m => ({
           role: m.sender === "admin" ? "user" : "model",

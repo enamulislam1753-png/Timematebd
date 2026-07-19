@@ -26,6 +26,11 @@ function getGeminiClient() {
   return aiClient;
 }
 
+// Active Quota Tracker for self-healing Gemini Routing
+let isGemini35Exhausted = false;
+let lastQuotaExhaustedTime = 0;
+const EXHAUSTION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown to retry primary model
+
 // Robust fallback and retry wrapper for Gemini generation to handle 429/503/RESOURCE_EXHAUSTED/UNAVAILABLE errors
 async function generateContentWithRetry(
   client: any,
@@ -39,11 +44,28 @@ async function generateContentWithRetry(
   let attempt = 0;
   let currentModel = params.model;
   
+  // If we are attempting to use gemini-3.5-flash but it's marked as exhausted, auto-route to gemini-3.1-flash-lite
+  if (currentModel === "gemini-3.5-flash" && isGemini35Exhausted) {
+    if (Date.now() - lastQuotaExhaustedTime < EXHAUSTION_COOLDOWN_MS) {
+      console.warn(`[Gemini API Self-Healing] gemini-3.5-flash is temporarily marked as EXHAUSTED. Instant-routed to gemini-3.1-flash-lite.`);
+      currentModel = "gemini-3.1-flash-lite";
+    } else {
+      isGemini35Exhausted = false; // Cooldown expired, let's try gemini-3.5-flash again
+    }
+  }
+  
   while (true) {
+    // gemini-3.1-flash-lite does not support googleSearch tool; strip it if active to avoid unsupported tool errors
+    const runConfig = { ...params.config };
+    if (currentModel === "gemini-3.1-flash-lite" && runConfig.tools) {
+      delete runConfig.tools;
+    }
+
     try {
       const response = await client.models.generateContent({
         ...params,
         model: currentModel,
+        config: runConfig,
       });
       return response;
     } catch (err: any) {
@@ -57,25 +79,40 @@ async function generateContentWithRetry(
         errStr.toLowerCase().includes("high demand") || 
         errStr.toLowerCase().includes("quota");
 
-      if (isRateLimitOrUnavailable && attempt <= maxRetries) {
-        console.warn(`[Gemini API Warning] Attempt ${attempt} failed with rate limit or unavailability: ${errStr}. Retrying after 1000ms...`);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        
-        // On subsequent attempts, if it keeps failing, switch model to gemini-3.1-flash-lite as fallback
-        if (attempt === maxRetries && currentModel === "gemini-3.5-flash") {
-          console.warn("[Gemini API Fallback] Switching model from gemini-3.5-flash to gemini-3.1-flash-lite due to repeated errors.");
-          currentModel = "gemini-3.1-flash-lite";
+      if (isRateLimitOrUnavailable) {
+        // Mark gemini-3.5-flash as exhausted
+        if (currentModel === "gemini-3.5-flash") {
+          isGemini35Exhausted = true;
+          lastQuotaExhaustedTime = Date.now();
         }
-        continue;
+
+        if (attempt <= maxRetries) {
+          console.warn(`[Gemini API Warning] Attempt ${attempt} failed with rate limit or unavailability: ${errStr}. Retrying after 1000ms...`);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          
+          // On subsequent attempts, if it keeps failing, switch model to gemini-3.1-flash-lite as fallback
+          if (attempt === maxRetries && currentModel === "gemini-3.5-flash") {
+            console.warn("[Gemini API Fallback] Switching model from gemini-3.5-flash to gemini-3.1-flash-lite due to repeated errors.");
+            currentModel = "gemini-3.1-flash-lite";
+          }
+          continue;
+        }
       }
       
       // If we haven't already switched to gemini-3.1-flash-lite, try one last time with gemini-3.1-flash-lite immediately
       if (currentModel === "gemini-3.5-flash") {
         console.warn("[Gemini API Fallback] Instant fallback to gemini-3.1-flash-lite after error:", errStr);
+        isGemini35Exhausted = true;
+        lastQuotaExhaustedTime = Date.now();
+        
         try {
+          const fallbackConfig = { ...params.config };
+          if (fallbackConfig.tools) delete fallbackConfig.tools;
+
           const fallbackResponse = await client.models.generateContent({
             ...params,
             model: "gemini-3.1-flash-lite",
+            config: fallbackConfig,
           });
           return fallbackResponse;
         } catch (fallbackErr) {
@@ -91,12 +128,10 @@ async function generateContentWithRetry(
 // Temporary storage for verified phone and email OTP codes in server-side memory
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
 
-  // Middleware to parse incoming bodies as JSON
-  app.use(express.json());
+// Middleware to parse incoming bodies as JSON
+app.use(express.json());
 
   // SECURE BACKEND SOURCE CODE ACCESS: Only the developer (enamulislam1753@gmail.com) can retrieve raw code!
   app.get('/download-:filename', async (req, res) => {
@@ -398,8 +433,10 @@ Guidelines:
 1. Answer the user's questions clearly, politely, and professionally.
 2. You are fully multilingual and support all languages. Always respond in the language used by the user (primarily Bengali/Bangla or English).
 3. You have comprehensive expert knowledge in all programming/coding languages (like Python, TypeScript, JavaScript, Rust, C++, etc.), scientific domains (Physics, Chemistry, Biology, Advanced Mathematics), humanities, history, and general knowledge.
-4. If a user asks about their order status, tracking, or account details, read and refer to the "Context about the current user & system" above to provide accurate real-time information!
-5. Feel free to explain code, solve scientific equations, write stories, or perform any cognitive task. Keep answers highly interactive, helpful, and structured.`;
+4. If a user asks about their order status, tracking, account details, or system statistics (like orders count, pending orders, income/revenue, user lists, etc.), you must read and refer to the "Context about the current user & system" above to perform real-time counts/calculations and provide accurate, live information directly on your own! Do NOT use pre-baked or static answers.
+5. Feel free to explain code, solve scientific equations, write stories, or perform any cognitive task. Keep answers highly interactive, helpful, and structured.
+6. If the user's question is about general knowledge, current events, real-time weather, news, or anything not present in the local database/context or your pre-trained model knowledge, you MUST search Google (using the googleSearch tool) to retrieve the answers directly from the web and present them cleanly with references!
+7. Avoid saying "as an AI assistant" or giving generic canned templates. Act as an extremely capable, intelligent, and real-time operational assistant. Always reply in the user's language (Bengali/Bangla or English).`;
 
       console.log(`[AI Chat API] Initiating request to gemini-3.5-flash...`);
 
@@ -511,15 +548,27 @@ Guidelines:
     res.json({ status: "ok" });
   });
 
+  const PORT = Number(process.env.PORT || 3000);
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const viteModule = await import("vite");
-    const vite = await viteModule.createServer({
-      server: { middlewareMode: true },
-      appType: "spa",
+    // Lazy-load Vite in development mode
+    import("vite").then(async (viteModule) => {
+      const vite = await viteModule.createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log(`[Server] Vite middleware loaded in development mode.`);
+      
+      if (!process.env.VERCEL) {
+        app.listen(PORT, "0.0.0.0", () => {
+          console.log(`Server running on port ${PORT}`);
+        });
+      }
+    }).catch((err) => {
+      console.error("Error loading Vite in development:", err);
     });
-    app.use(vite.middlewares);
-    console.log(`[Server] Vite middleware loaded in development mode.`);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
@@ -527,13 +576,12 @@ Guidelines:
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log(`[Server] Serving static files from: ${distPath}`);
+
+    if (!process.env.VERCEL) {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on port ${PORT}`);
+      });
+    }
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-startServer().catch((err) => {
-  console.error("Error starting server:", err);
-});
+export default app;
