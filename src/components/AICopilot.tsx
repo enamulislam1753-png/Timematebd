@@ -35,6 +35,53 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+interface AICopilotChatFormProps {
+  onSubmit: (val: string) => void;
+  isAiModeOn: boolean;
+  isLoading: boolean;
+  prompt: string;
+}
+
+const AICopilotChatForm: React.FC<AICopilotChatFormProps> = ({
+  onSubmit,
+  isAiModeOn,
+  isLoading,
+  prompt
+}) => {
+  const [localVal, setLocalVal] = useState(prompt);
+
+  useEffect(() => {
+    setLocalVal(prompt);
+  }, [prompt]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!localVal.trim()) return;
+    onSubmit(localVal);
+    setLocalVal("");
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2.5 pt-4 border-t border-white/5">
+      <input
+        type="text"
+        value={localVal}
+        onChange={(e) => setLocalVal(e.target.value)}
+        placeholder={isAiModeOn ? "যেকোনো প্রশ্ন জিজ্ঞেস করুন বা অর্ডার আপডেট করুন..." : "এআই মোড অফ আছে"}
+        disabled={!isAiModeOn || isLoading}
+        className="flex-1 px-4 py-3.5 bg-black/40 border border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-bold placeholder-gray-500 disabled:opacity-50 animate-none"
+      />
+      <button
+        type="submit"
+        disabled={!isAiModeOn || isLoading || !localVal.trim()}
+        className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 transition-all rounded-2xl text-white font-black cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95 border-0"
+      >
+        <Send size={16} />
+      </button>
+    </form>
+  );
+};
+
 export const AICopilot: React.FC<AICopilotProps> = ({
   orders,
   allUsers,
@@ -531,16 +578,25 @@ export const AICopilot: React.FC<AICopilotProps> = ({
     };
   };
 
-  const handleCommandSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  const handleCommandSubmit = async (eOrText: React.FormEvent | string) => {
+    let text = "";
+    if (typeof eOrText === "string") {
+      text = eOrText.trim();
+    } else {
+      if (eOrText && typeof eOrText.preventDefault === "function") {
+        eOrText.preventDefault();
+      }
+      text = prompt.trim();
+    }
+
+    if (!text) return;
 
     if (!isAiModeOn) {
       addToast("অনুগ্রহ করে আগে এআই মোডটি অন করুন!", "error");
       return;
     }
 
-    const userPrompt = prompt;
+    const userPrompt = text;
     setPrompt("");
 
     // Append User's Message immediately to the thread
@@ -964,12 +1020,12 @@ Rules:
       )}
 
       {/* Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-        {/* Main Chat Bot Thread Interface */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-black/30 p-6 rounded-3xl border border-white/5 space-y-4 min-h-[450px] flex flex-col justify-between">
+      <div className="grid grid-cols-1 gap-8 mt-8">
+        {/* Main Chat Bot Thread Interface - FULL WIDTH */}
+        <div className="space-y-6">
+          <div className="bg-black/30 p-6 sm:p-8 rounded-[2.5rem] border border-white/5 space-y-4 min-h-[550px] flex flex-col justify-between shadow-2xl">
             {/* Scrollable Conversation History */}
-            <div className="flex-1 overflow-y-auto max-h-[380px] space-y-4 pr-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
+            <div className="flex-1 overflow-y-auto h-[420px] max-h-[420px] space-y-4 pr-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-1.5 mb-2 border-b border-white/5 pb-2">
                 <Zap size={12} className="animate-pulse" />
                 এআই চ্যাট থ্রেড (Conversational Memory Active)
@@ -986,7 +1042,7 @@ Rules:
                     </div>
                   )}
                   <div
-                    className={`max-w-[85%] p-4 rounded-2xl text-xs font-semibold leading-relaxed leading-relaxed whitespace-pre-wrap shadow-lg border ${
+                    className={`max-w-[85%] p-4 rounded-2xl text-xs font-semibold leading-relaxed whitespace-pre-wrap shadow-lg border ${
                       msg.sender === "admin"
                         ? "bg-indigo-650/40 border-indigo-500/30 text-white rounded-tr-none ml-10"
                         : "bg-white/5 border-white/5 text-indigo-100 rounded-tl-none mr-10"
@@ -1025,23 +1081,13 @@ Rules:
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input Form */}
-            <form onSubmit={handleCommandSubmit} className="flex gap-2.5 pt-4 border-t border-white/5">
-              <input
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder={isAiModeOn ? "যেকোনো প্রশ্ন জিজ্ঞেস করুন বা অর্ডার আপডেট করুন..." : "এআই মোড অফ আছে"}
-                disabled={!isAiModeOn || isLoading}
-                className="flex-1 px-4 py-3.5 bg-black/40 border border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-bold placeholder-gray-500 disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={!isAiModeOn || isLoading || !prompt.trim()}
-                className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 transition-all rounded-2xl text-white font-black cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95 border-0"
-              >
-                <Send size={16} />
-              </button>
-            </form>
+            {/* Optimized Input Form */}
+            <AICopilotChatForm
+              onSubmit={handleCommandSubmit}
+              isAiModeOn={isAiModeOn}
+              isLoading={isLoading}
+              prompt={prompt}
+            />
           </div>
 
           {/* Guidelines / Quick Actions */}
@@ -1050,7 +1096,7 @@ Rules:
               <Info size={14} />
               এআই কুইক অ্যাকশন সাজেশন
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
               {[
                 { label: "নতুন অর্ডারের মূল্য সেট", cmd: "ORD-109 এর মূল্য ৫০০ টাকা সেট করো" },
                 { label: "সন্দেহজনক গ্রাহক ব্যান", cmd: "ব্যান করো ০১৮২৩৭৭৪৬১২" },
@@ -1072,9 +1118,9 @@ Rules:
           </div>
         </div>
 
-        {/* Real-time System Logs performed by AI */}
-        <div className="space-y-6">
-          <div className="bg-black/20 p-6 rounded-3xl border border-white/5 h-full flex flex-col justify-between">
+        {/* Real-time System Logs performed by AI & Security notice - Beautiful 2-Column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 bg-black/20 p-6 rounded-3xl border border-white/5 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between border-b border-white/5 pb-3 mb-4">
                 <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-1.5">
@@ -1090,7 +1136,7 @@ Rules:
                 </button>
               </div>
 
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                 {executionLogs.length === 0 ? (
                   <p className="text-[10px] text-gray-600 italic text-center py-8">কোনো অ্যাকশন হিস্ট্রি রেকর্ড নেই।</p>
                 ) : (
@@ -1123,17 +1169,16 @@ Rules:
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Human Only Notice Block */}
-            <div className="mt-4 pt-4 border-t border-white/5 bg-red-500/5 border border-red-500/10 p-3.5 rounded-2xl">
-              <span className="text-[9px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1.5 mb-1">
-                <Lock size={11} />
-                প্রশাসক শুধুমাত্র (Human Sensitive)
-              </span>
-              <p className="text-[9px] text-gray-400 leading-relaxed font-semibold">
-                ডাটাবেস রিসেট, পেমেন্ট নম্বর মডিফিকেশন এবং মানব ক্রেনডেনশিয়াল পরিবর্তন শুধুমাত্র মানুষের জন্য সংরক্ষিত। এআই এ সকল পরিবর্তনের অধিকার রাখে না।
-              </p>
-            </div>
+          <div className="bg-red-500/5 border border-red-500/10 p-6 rounded-3xl flex flex-col justify-center">
+            <span className="text-[9px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1.5 mb-2">
+              <Lock size={11} />
+              প্রশাসক শুধুমাত্র (Human Sensitive)
+            </span>
+            <p className="text-[10px] text-gray-400 leading-relaxed font-semibold">
+              ডাটাবেস রিসেট, পেমেন্ট নম্বর মডিফিকেশন এবং মানব ক্রেনডেনশিয়াল পরিবর্তন শুধুমাত্র মানুষের জন্য সংরক্ষিত। এআই এ সকল পরিবর্তনের অধিকার রাখে না।
+            </p>
           </div>
         </div>
       </div>

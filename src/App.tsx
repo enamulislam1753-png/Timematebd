@@ -1588,6 +1588,11 @@ export default function App() {
 
   // Binary Trading Price Simulation
   useEffect(() => {
+    // Only run when the trading tab is actively visible to prevent background lag in standard fields
+    if (coinActiveTab !== "trading" && !isFullTradingScreen) {
+      return;
+    }
+
     const interval = setInterval(() => {
       setTradePrice((currentPrice) => {
         const delta = (Math.random() * 3.4 - 1.7); // fluctuation between -1.7 and +1.7
@@ -1641,7 +1646,7 @@ export default function App() {
     }, 1200);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [coinActiveTab, isFullTradingScreen]);
 
   // Binary Trading Active Trade Resolution
   useEffect(() => {
@@ -21655,18 +21660,40 @@ ${orderDetails || "No orders found for this customer."}`;
 
               {/* Chat Input typed bar inside panel */}
               {(user?.uid || guestSession?.uid) && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const form = e.currentTarget;
-                    const input = form.elements.namedItem("customerMsg") as HTMLInputElement;
-                    if (input && input.value.trim()) {
-                      sendCustomerSupportMessage(input.value);
-                      input.value = "";
-                    }
-                  }}
-                  className="p-3 bg-white dark:bg-slate-900 border-t border-gray-150 dark:border-white/5 flex gap-1.5 shrink-0"
-                >
+                <div className="flex flex-col shrink-0 border-t border-gray-150 dark:border-white/5 bg-gray-50/50 dark:bg-slate-950/20">
+                  {/* Suggested Quick Questions */}
+                  <div className="px-3 py-2 flex flex-wrap gap-1.5 border-b border-gray-100 dark:border-white/5">
+                    <span className="text-[9px] font-black uppercase text-gray-400 w-full mb-1 flex items-center gap-1">
+                      💡 দ্রুত প্রশ্ন করার জন্য নিচের যেকোনো একটিতে চাপুন:
+                    </span>
+                    {[
+                      { label: "🕒 সার্ভিসসমূহ", text: "টাইমমেট কি কি সার্ভিস দেয়?" },
+                      { label: "🛒 অর্ডার করার নিয়ম", text: "কিভাবে সার্ভিস নিবো?" },
+                      { label: "💳 পেমেন্ট পদ্ধতি", text: "কিভাবে পেমেন্ট করবো?" }
+                    ].map((q, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => sendCustomerSupportMessage(q.text)}
+                        className="px-2 py-1 bg-white dark:bg-slate-900 hover:bg-indigo-50 hover:dark:bg-indigo-950/30 border border-gray-150 dark:border-white/10 text-[9px] font-bold rounded-md text-gray-750 dark:text-gray-200 transition-all cursor-pointer shadow-2xs hover:text-indigo-600"
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.currentTarget;
+                      const input = form.elements.namedItem("customerMsg") as HTMLInputElement;
+                      if (input && input.value.trim()) {
+                        sendCustomerSupportMessage(input.value);
+                        input.value = "";
+                      }
+                    }}
+                    className="p-3 bg-white dark:bg-slate-900 flex gap-1.5 shrink-0"
+                  >
                   <input
                     type="text"
                     name="customerMsg"
@@ -21681,6 +21708,7 @@ ${orderDetails || "No orders found for this customer."}`;
                     <Send size={12} />
                   </button>
                 </form>
+              </div>
               )}
             </motion.div>
           )}

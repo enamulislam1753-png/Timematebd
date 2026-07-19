@@ -37,7 +37,7 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // Sync to parent on delay with 150ms stable debounce window to guarantee zero typing lag
+  // Sync to parent on delay with 50ms stable debounce window to guarantee zero typing lag
   useEffect(() => {
     const timer = setTimeout(() => {
       const currentParentVal = (valueRef.current as string) || "";
@@ -50,7 +50,7 @@ export const BufferedInput: React.FC<BufferedInputProps> = ({
           },
         });
       }
-    }, 150); 
+    }, 50); 
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
@@ -128,7 +128,7 @@ export const BufferedTextArea: React.FC<BufferedTextAreaProps> = ({
           },
         });
       }
-    }, 150);
+    }, 50);
     return () => clearTimeout(timer);
   }, [localVal, id, name]);
 
