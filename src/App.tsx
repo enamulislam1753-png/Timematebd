@@ -2748,57 +2748,34 @@ export default function App() {
   const [usersLimit, setUsersLimit] = useState(20);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
 
-  // Opening Animation duration & custom loading percentage generator
+  // Ultra-fast Opening Animation duration & custom loading percentage generator
   useEffect(() => {
     let current = 0;
     const interval = setInterval(() => {
-      // Fast start, slow down near end for suspense/elegance
-      const increment = current < 40 
-        ? Math.floor(Math.random() * 8) + 12 
-        : current < 75 
-        ? Math.floor(Math.random() * 5) + 6 
-        : Math.floor(Math.random() * 2) + 1;
-      
-      current = Math.min(100, current + increment);
+      current = Math.min(100, current + 25);
       setLoadingPercent(current);
       
-      if (current < 25) {
-        setLoadingStatusText("📡 ডাবল এনক্রিপটেড সংযোগ স্থাপন...");
-      } else if (current < 55) {
-        setLoadingStatusText("🛡️ নিরাপদ লোকাল সিকিউর ডেটাবেজ সংযোগ...");
-      } else if (current < 85) {
-        setLoadingStatusText("🔐 ওটিপি ও ডিভাইস সিকিউরিটি চেক...");
-      } else if (current < 100) {
-        setLoadingStatusText("⚡ টাইমমেট সেশন সম্পূর্ণ প্রস্তুত করা হচ্ছে...");
+      if (current < 30) {
+        setLoadingStatusText("⚡ টাইমমেট সংযোগ স্থাপন...");
+      } else if (current < 70) {
+        setLoadingStatusText("🛡️ সিকিউর লোকাল ক্যাশ সংযোগ...");
       } else {
-        setLoadingStatusText("🎉 স্বাগতম! টাইমমেট বিডিতে আপনার প্রবেশ নিশ্চিত...");
+        setLoadingStatusText("🎉 স্বাগতম! টাইমমেটে আপনার প্রবেশ নিশ্চিত...");
         clearInterval(interval);
       }
-    }, 15);
+    }, 20);
 
     return () => {
       clearInterval(interval);
     };
   }, []);
 
-  // Sync the opening screen dismiss and auth check
+  // Sync the opening screen dismiss and auth check instantly
   useEffect(() => {
-    // If the cached or active authenticated user is resolved, bypass and close modal instantly
-    if (user) {
-      setIsOpening(false);
-      setAuthModal({ isOpen: false, mode: "LOGIN" });
-      return;
-    }
-
-    if (loadingPercent === 100 && !loading) {
+    if (!loading || loadingPercent === 100 || user) {
       const waitTimer = setTimeout(() => {
         setIsOpening(false);
-        if (!user) {
-          setAuthModal({ isOpen: true, mode: "LOGIN" });
-        } else {
-          setAuthModal({ isOpen: false, mode: "LOGIN" });
-        }
-      }, 350);
+      }, 50);
       return () => clearTimeout(waitTimer);
     }
   }, [loadingPercent, loading, user]);
@@ -7352,11 +7329,10 @@ ${orderDetails || "No orders found for this customer."}`;
             initial={{ opacity: 1 }}
             exit={{
               opacity: 0,
-              scale: 1.05,
-              filter: "blur(25px)",
-              transition: { duration: 0.9, ease: [0.4, 0, 0.2, 1] },
+              transition: { duration: 0.15, ease: "easeOut" },
             }}
-            className="fixed inset-0 z-[99999] bg-[#020211] flex flex-col items-center justify-center overflow-hidden"
+            onClick={() => setIsOpening(false)}
+            className="fixed inset-0 z-[99999] bg-[#020211] flex flex-col items-center justify-center overflow-hidden cursor-pointer"
           >
             {/* Ambient Background Glow Particles (Psychological Healing Visuals) */}
             <motion.div 
@@ -7484,15 +7460,22 @@ ${orderDetails || "No orders found for this customer."}`;
                   </div>
                 </div>
 
-                {/* Subtle, elegant branding text at the very bottom */}
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.7 }}
-                  transition={{ delay: 0.8, duration: 1 }}
-                  className="text-white/40 text-[9px] font-mono tracking-[0.4em] uppercase mt-4"
+                {/* Quick Skip button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsOpening(false);
+                  }}
+                  className="mt-4 px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-[10px] font-bold rounded-full border border-white/15 transition-all cursor-pointer backdrop-blur-md"
                 >
+                  ⚡ এখনই শুরু করুন (Skip)
+                </button>
+
+                {/* Subtle, elegant branding text at the very bottom */}
+                <p className="text-white/40 text-[9px] font-mono tracking-[0.4em] uppercase mt-3">
                   Your Time · Our Value
-                </motion.p>
+                </p>
               </motion.div>
             </div>
           </motion.div>
@@ -8424,6 +8407,7 @@ ${orderDetails || "No orders found for this customer."}`;
               initial={{ x: -300 }}
               animate={{ x: 0 }}
               exit={{ x: -300 }}
+              transition={{ type: "tween", ease: "easeOut", duration: 0.18 }}
               className="fixed top-0 left-0 w-[280px] h-full z-[100] bg-indigo-950 shadow-2xl p-6 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-8">
@@ -9071,9 +9055,10 @@ ${orderDetails || "No orders found for this customer."}`;
                         onClick={() => setIsUserMenuOpen(false)}
                       />
                       <motion.div
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 5 }}
+                        transition={{ duration: 0.12 }}
                         className="absolute top-12 right-0 w-56 bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 p-2 z-[60]"
                       >
                         <div className="px-4 py-3 border-b border-gray-100 dark:border-white/10">
@@ -10252,8 +10237,9 @@ ${orderDetails || "No orders found for this customer."}`;
           {/* Section: Service Order */}
           {activeSection === "order" && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12 }}
               className="max-w-3xl mx-auto"
             >
               <div className="flex items-center gap-4 mb-8">
@@ -10441,8 +10427,9 @@ ${orderDetails || "No orders found for this customer."}`;
           {/* Section: Courier Form */}
           {activeSection === "courier-form" && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12 }}
               className="max-w-3xl mx-auto"
             >
               <div className="flex items-center gap-4 mb-8">
@@ -10887,8 +10874,9 @@ ${orderDetails || "No orders found for this customer."}`;
 
           {activeSection === "myorders" && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12 }}
               className="max-w-5xl mx-auto space-y-8 pb-12"
             >
               {/* Referral System Panel */}
@@ -11305,8 +11293,9 @@ ${orderDetails || "No orders found for this customer."}`;
            {/* Section: User Profile */}
            {activeSection === "profile" && user && !isAdmin && (
              <motion.div
-               initial={{ opacity: 0, y: 20 }}
-               animate={{ opacity: 1, y: 0 }}
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               transition={{ duration: 0.12 }}
                className="max-w-2xl mx-auto space-y-8"
              >
                <div className="flex items-center justify-between">
@@ -12820,8 +12809,9 @@ ${orderDetails || "No orders found for this customer."}`;
           {/* Section: Admin Panel */}
           {activeSection === "admin" && isAdmin && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12 }}
               className="space-y-8"
             >
               {/* Mock Login Warning */}
