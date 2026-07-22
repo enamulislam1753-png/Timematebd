@@ -608,7 +608,10 @@ const RemoteVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) =
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+      if (videoRef.current.srcObject !== stream) {
+        videoRef.current.srcObject = stream;
+      }
+      videoRef.current.play().catch((err) => console.warn("Remote video play error:", err));
     }
   }, [stream]);
 
@@ -626,6 +629,30 @@ const RemoteVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) =
       autoPlay
       playsInline
       className="absolute inset-0 w-full h-full object-cover rounded-full"
+    />
+  );
+};
+
+const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boolean; isSpeakerMode: boolean }> = ({ stream, isPhoneMode, isSpeakerMode }) => {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      if (audioRef.current.srcObject !== stream) {
+        audioRef.current.srcObject = stream;
+      }
+      audioRef.current.volume = isSpeakerMode ? 1.0 : (isPhoneMode ? 0.3 : 1.0);
+      audioRef.current.play().catch((err) => console.warn("Remote audio play error:", err));
+    }
+  }, [stream, isPhoneMode, isSpeakerMode]);
+
+  if (!stream) return null;
+
+  return (
+    <audio
+      ref={audioRef}
+      autoPlay
+      playsInline
     />
   );
 };
@@ -1278,11 +1305,9 @@ export default function App() {
   }, [user, checkIsAdminSecure]);
 
   const [activeSection, setActiveSectionInternal] = useState("home");
-  const [isPendingSection, startSectionTransition] = useTransition();
   const setActiveSection = useCallback((val: string) => {
-    startSectionTransition(() => {
-      setActiveSectionInternal(val);
-    });
+    setActiveSectionInternal(val);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -1407,11 +1432,8 @@ export default function App() {
   const [coinActiveTab, setCoinActiveTabInternal] = useState<
     "cashout" | "coupon" | "tracking" | "trading"
   >("cashout");
-  const [isPendingCoinActiveTab, startCoinActiveTabTransition] = useTransition();
   const setCoinActiveTab = useCallback((val: "cashout" | "coupon" | "tracking" | "trading") => {
-    startCoinActiveTabTransition(() => {
-      setCoinActiveTabInternal(val);
-    });
+    setCoinActiveTabInternal(val);
   }, []);
   const [coinsToCashout, setCoinsToCashout] = useState(500);
   const [cashoutMethod, setCashoutMethod] = useState<
@@ -3157,11 +3179,8 @@ export default function App() {
 
   // Admin states
   const [adminTab, setAdminTabInternal] = useState("orders");
-  const [isPendingAdminTab, startAdminTabTransition] = useTransition();
   const setAdminTab = useCallback((val: string) => {
-    startAdminTabTransition(() => {
-      setAdminTabInternal(val);
-    });
+    setAdminTabInternal(val);
   }, []);
 
   const [prefilledReminderUserId, setPrefilledReminderUserId] = useState<string | null>(null);
@@ -3241,11 +3260,8 @@ export default function App() {
   }, [isSuperAdmin, addToast, customConfirm]);
 
   const [employeeTab, setEmployeeTabInternal] = useState("jobs");
-  const [isPendingEmployeeTab, startEmployeeTabTransition] = useTransition();
   const setEmployeeTab = useCallback((val: string) => {
-    startEmployeeTabTransition(() => {
-      setEmployeeTabInternal(val);
-    });
+    setEmployeeTabInternal(val);
   }, []);
 
   // Anti-Hacker Shield & Safe Mode State Managers
@@ -3338,20 +3354,34 @@ export default function App() {
   const [isSpeakerMode, setIsSpeakerMode] = useState(true);
   const [isPhoneMode, setIsPhoneMode] = useState(false);
 
-  // Sync mute state with device tracks
+  // Sync mute state with device tracks and PeerConnection senders
   useEffect(() => {
     if (localStream) {
       localStream.getAudioTracks().forEach(track => {
         track.enabled = !localMute;
       });
     }
+    if (pcRef.current) {
+      pcRef.current.getSenders().forEach(sender => {
+        if (sender.track && sender.track.kind === "audio") {
+          sender.track.enabled = !localMute;
+        }
+      });
+    }
   }, [localMute, localStream]);
 
-  // Sync camera toggle with device tracks
+  // Sync camera toggle with device tracks and PeerConnection senders
   useEffect(() => {
     if (localStream) {
       localStream.getVideoTracks().forEach(track => {
         track.enabled = !localVideoOff;
+      });
+    }
+    if (pcRef.current) {
+      pcRef.current.getSenders().forEach(sender => {
+        if (sender.track && sender.track.kind === "video") {
+          sender.track.enabled = !localVideoOff;
+        }
       });
     }
   }, [localVideoOff, localStream]);
@@ -5792,14 +5822,20 @@ export default function App() {
     const txIdInput = document.getElementById(
       "payment-modal-txid",
     ) as HTMLInputElement;
-    const txid = txIdInput ? txIdInput.value : paymentTxId;
+    const txid = (txIdInput ? txIdInput.value : paymentTxId).trim();
     if (!txid) {
       addToast("ট্রানজেকশন আইডি দিন", "error");
       return;
     }
+    const targetOrder = paymentModal.order || orders.find(o => o.id === paymentModal.order?.id);
+    if (!targetOrder || !targetOrder.id) {
+      addToast("অর্ডার আইডি পাওয়া যায়নি", "error");
+      return;
+    }
+
     try {
-      const orderRef = doc(db, "orders", paymentModal.order.id);
-      const applied = appliedOrderCoupons[paymentModal.order.id];
+      const orderRef = doc(db, "orders", targetOrder.id);
+      const applied = appliedOrderCoupons[targetOrder.id];
       const updateData: any = {
         status: "পেমেন্ট যাচাই",
         transactionId: txid,
@@ -5811,19 +5847,31 @@ export default function App() {
         updateData.discountCode = applied.coupon.code;
         updateData.discountedCharge = applied.finalPrice;
       }
-      await updateDoc(orderRef, updateData);
-      addToast("পেমেন্ট রিকোয়েস্ট পাঠানো হয়েছে!");
-      createNotification(
-        "9xG6zcPwytNEOEohAVupu7DLMyT2",
-        "পেমেন্ট ভেরিফিকেশন",
-        `অর্ডার ${paymentModal.order.id}-এর পেমেন্ট যাচাই করতে হবে। TxID: ${txid}`,
-        "system",
-      );
+      
+      try {
+        await updateDoc(orderRef, updateData);
+      } catch (err) {
+        console.warn("updateDoc failed, using setDoc merge fallback:", err);
+        await setDoc(orderRef, updateData, { merge: true });
+      }
+
+      addToast("পেমেন্ট রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!", "success");
+      
+      try {
+        createNotification(
+          "admin",
+          "পেমেন্ট ভেরিফিকেশন",
+          `অর্ডার ${targetOrder.id}-এর পেমেন্ট যাচাই করতে হবে। TxID: ${txid}`,
+          "system",
+        );
+      } catch (_) {}
+
       setPaymentModal({ isOpen: false, order: null });
       setPaymentTxId("");
       if (txIdInput) txIdInput.value = "";
-    } catch (e) {
-      addToast("সাবমিট ব্যর্থ হয়েছে", "error");
+    } catch (e: any) {
+      console.error("Payment submission error:", e);
+      addToast("সাবমিট ব্যর্থ হয়েছে, অনুগ্রহ করে আবার চেষ্টা করুন", "error");
     }
   };
 
@@ -7013,6 +7061,7 @@ ${orderDetails || "No orders found for this customer."}`;
       onClick={() => {
         setOrderForm({ ...orderForm, service: serviceKey });
         setActiveSection("order");
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }}
       className="group cursor-pointer rounded-[2.5rem] p-6 border transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-indigo-500/10"
       style={{
@@ -7663,18 +7712,11 @@ ${orderDetails || "No orders found for this customer."}`;
               </div>
 
               {/* Remote Audio Track Player to transmit voice bidirectional */}
-              {remoteStream && (
-                <audio
-                  ref={(el) => {
-                    if (el) {
-                      el.srcObject = remoteStream;
-                      el.volume = isPhoneMode ? 0.25 : 1.0;
-                    }
-                  }}
-                  autoPlay
-                  playsInline
-                />
-              )}
+              <RemoteAudioPlayer
+                stream={remoteStream}
+                isPhoneMode={isPhoneMode}
+                isSpeakerMode={isSpeakerMode}
+              />
             </motion.div>
           </div>
         )}
@@ -10972,7 +11014,7 @@ ${orderDetails || "No orders found for this customer."}`;
               </div>
 
               <div className="grid gap-6">
-                {orders.filter((o) => o.userId === user?.uid).length === 0 ? (
+                {orders.filter((o) => (user?.uid && o.userId === user.uid) || (guestSession?.uid && (o.userId === guestSession.uid || (o.phone && o.phone === guestSession.phone)))).length === 0 ? (
                   <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl rounded-[3rem] p-24 text-center border border-gray-100 dark:border-white/5 shadow-inner">
                     <div className="w-24 h-24 bg-gray-50 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
                       <FileText size={40} className="text-gray-300" />
@@ -10989,7 +11031,7 @@ ${orderDetails || "No orders found for this customer."}`;
                   </div>
                 ) : (
                   orders
-                    .filter((o) => o.userId === user?.uid)
+                    .filter((o) => (user?.uid && o.userId === user.uid) || (guestSession?.uid && (o.userId === guestSession.uid || (o.phone && o.phone === guestSession.phone))))
                     .filter((order) => {
                       const cleanSearch = orderSearchTerm.trim().toLowerCase();
                       const matchesSearch =
@@ -11142,15 +11184,16 @@ ${orderDetails || "No orders found for this customer."}`;
                                   {trans("বাতিল করুন", "Cancel")}
                                 </button>
                               )}
-                              {order.charge > 0 && order.status !== "সম্পন্ন" && order.status !== "বাতিল" && (
+                              {order.status !== "সম্পন্ন" && order.status !== "বাতিল" && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setPaymentModal({ isOpen: true, order });
                                   }}
-                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white text-xs font-bold rounded-xl transition-all active:scale-95"
+                                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-white text-xs font-black rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5"
                                 >
-                                  {order.status === "মূল্য নির্ধারণ" ? "পেমেন্ট করুন" : "ম্যানুয়াল পেমেন্ট"}
+                                  <CreditCard size={14} />
+                                  {order.status === "পেমেন্ট যাচাই" ? "পেমেন্ট আপডেট" : "💳 পেমেন্ট করুন"}
                                 </button>
                               )}
                               <button
@@ -21057,7 +21100,18 @@ ${orderDetails || "No orders found for this customer."}`;
                   )}
                 </div>
 
-                <div className="mt-8 flex justify-end gap-3">
+                <div className="mt-8 flex flex-col sm:flex-row justify-end gap-3">
+                  {selectedOrder.status !== "সম্পন্ন" && selectedOrder.status !== "বাতিল" && (
+                    <button
+                      onClick={() => {
+                        setPaymentModal({ isOpen: true, order: selectedOrder });
+                      }}
+                      className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <CreditCard size={16} />
+                      💳 পেমেন্ট করুন
+                    </button>
+                  )}
                   <button
                     onClick={() => setSelectedOrder(null)}
                     className="w-full sm:w-auto px-8 py-3.5 bg-gray-100 dark:bg-white/5 font-black text-gray-700 dark:text-white text-xs uppercase tracking-widest rounded-2xl transition-all"
