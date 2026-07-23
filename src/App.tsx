@@ -633,7 +633,7 @@ const RemoteVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) =
   );
 };
 
-const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boolean; isSpeakerMode: boolean }> = ({ stream, isPhoneMode, isSpeakerMode }) => {
+const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boolean; isSpeakerMode: boolean }> = ({ stream }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -641,21 +641,25 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
     if (!el) return;
 
     if (stream) {
-      if (el.srcObject !== stream) {
-        el.srcObject = stream;
-      }
-      // Ensure all tracks in the incoming stream are enabled
+      console.log("RemoteAudioPlayer bound to stream:", stream.id, "Audio tracks:", stream.getAudioTracks().length);
+      el.srcObject = stream;
       stream.getAudioTracks().forEach((track) => {
         track.enabled = true;
       });
-
-      // Volume scaling: Loudspeaker = 1.0, Normal Earpiece = 0.35, Handset Mode = 0.15
-      const targetVolume = isSpeakerMode ? 1.0 : (isPhoneMode ? 0.15 : 0.35);
-      el.volume = targetVolume;
+      el.volume = 1.0;
+      el.muted = false;
 
       const playAudio = () => {
         el.play().catch((err) => {
-          console.warn("Remote audio play error, retrying on interaction:", err);
+          console.warn("Remote audio play deferred, adding touch unlock listener:", err);
+          const unlock = () => {
+            el.play().then(() => {
+              window.removeEventListener("touchstart", unlock);
+              window.removeEventListener("click", unlock);
+            }).catch(() => {});
+          };
+          window.addEventListener("touchstart", unlock, { once: true });
+          window.addEventListener("click", unlock, { once: true });
         });
       };
 
@@ -663,14 +667,15 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
     } else {
       el.srcObject = null;
     }
-  }, [stream, isPhoneMode, isSpeakerMode]);
+  }, [stream]);
 
   return (
     <audio
       ref={audioRef}
       autoPlay
       playsInline
-      className="hidden"
+      controls={false}
+      style={{ display: "none" }}
     />
   );
 };
@@ -6197,46 +6202,61 @@ export default function App() {
       const email = user?.email || "guest@timemate.bd";
 
       let offerSDP = "";
+      const localCallerCandidates: string[] = [];
+      let docCreated = false;
+
       if (stream) {
         const pc = new RTCPeerConnection({
           iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" }
-          ]
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" },
+            { urls: "stun:global.stun.twilio.com:3478" }
+          ],
+          iceCandidatePoolSize: 10
         });
         pcRef.current = pc;
         setRemoteStream(null);
 
         stream.getTracks().forEach((track) => {
+          track.enabled = true;
           pc.addTrack(track, stream!);
         });
 
         pc.ontrack = (event) => {
+          console.log("Caller pc.ontrack fired:", event.track.kind, event.streams);
           let inboundStream = (event.streams && event.streams[0]) ? event.streams[0] : null;
           if (!inboundStream && event.track) {
             inboundStream = new MediaStream([event.track]);
           }
           if (inboundStream) {
             inboundStream.getAudioTracks().forEach(t => { t.enabled = true; });
-            setRemoteStream(inboundStream);
+            setRemoteStream(new MediaStream(inboundStream.getTracks()));
           }
         };
 
         pc.onicecandidate = async (event) => {
           if (event.candidate) {
             const candJSON = JSON.stringify(event.candidate.toJSON());
-            try {
-              await updateDoc(doc(db, "support_rooms", targetId), {
-                "callState.callerCandidates": arrayUnion(candJSON)
-              });
-            } catch (e) {
-              console.warn("Error unioning candidate:", e);
+            localCallerCandidates.push(candJSON);
+            if (docCreated) {
+              try {
+                await updateDoc(doc(db, "support_rooms", targetId), {
+                  "callState.callerCandidates": arrayUnion(candJSON)
+                });
+              } catch (e) {
+                console.warn("Error unioning candidate:", e);
+              }
             }
           }
         };
 
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: type === "video"
+        });
         await pc.setLocalDescription(offer);
         offerSDP = JSON.stringify(offer);
       }
@@ -6257,10 +6277,12 @@ export default function App() {
           callStatus: "ringing",
           timestamp: Date.now(),
           offer: offerSDP,
-          callerCandidates: [],
+          callerCandidates: localCallerCandidates,
           receiverCandidates: []
         }
       }, { merge: true });
+
+      docCreated = true;
 
       addToast(type === "voice" ? "ভয়েস কল ডায়াল করা হচ্ছে..." : "ভিডিও কল ডায়াল করা হচ্ছে...", "success");
     } catch (err) {
@@ -6307,35 +6329,44 @@ export default function App() {
       }
 
       let answerSDP = "";
+      const localReceiverCandidates: string[] = [];
+
       if (stream && activeCallingRoom?.callState?.offer) {
         const pc = new RTCPeerConnection({
           iceServers: [
             { urls: "stun:stun.l.google.com:19302" },
             { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" }
-          ]
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun3.l.google.com:19302" },
+            { urls: "stun:stun4.l.google.com:19302" },
+            { urls: "stun:global.stun.twilio.com:3478" }
+          ],
+          iceCandidatePoolSize: 10
         });
         pcRef.current = pc;
         setRemoteStream(null);
 
         stream.getTracks().forEach((track) => {
+          track.enabled = true;
           pc.addTrack(track, stream!);
         });
 
         pc.ontrack = (event) => {
+          console.log("Receiver pc.ontrack fired:", event.track.kind, event.streams);
           let inboundStream = (event.streams && event.streams[0]) ? event.streams[0] : null;
           if (!inboundStream && event.track) {
             inboundStream = new MediaStream([event.track]);
           }
           if (inboundStream) {
             inboundStream.getAudioTracks().forEach(t => { t.enabled = true; });
-            setRemoteStream(inboundStream);
+            setRemoteStream(new MediaStream(inboundStream.getTracks()));
           }
         };
 
         pc.onicecandidate = async (event) => {
           if (event.candidate) {
             const candJSON = JSON.stringify(event.candidate.toJSON());
+            localReceiverCandidates.push(candJSON);
             try {
               await updateDoc(doc(db, "support_rooms", targetId), {
                 "callState.receiverCandidates": arrayUnion(candJSON)
@@ -6349,7 +6380,10 @@ export default function App() {
         const offer = JSON.parse(activeCallingRoom.callState.offer);
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         await flushPendingIceCandidates(pc);
-        const answer = await pc.createAnswer();
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: callType === "video"
+        });
         await pc.setLocalDescription(answer);
         answerSDP = JSON.stringify(answer);
       }
@@ -6357,7 +6391,8 @@ export default function App() {
       await updateDoc(doc(db, "support_rooms", targetId), {
         "callState.callStatus": "connected",
         "callState.connectedAt": Date.now(),
-        "callState.answer": answerSDP
+        "callState.answer": answerSDP,
+        "callState.receiverCandidates": arrayUnion(...localReceiverCandidates)
       });
       addToast("কল রিসিভ করা হয়েছে!", "success");
     } catch (err) {
@@ -7819,14 +7854,14 @@ ${orderDetails || "No orders found for this customer."}`;
                       <p className="text-[9px] text-emerald-500/80 font-black tracking-widest uppercase mt-1">CONNECTED</p>
                       {/* Active audio/phone mode status badges */}
                       <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${isSpeakerMode ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
-                          🔊 Speaker: ON
+                        <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${isSpeakerMode ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 animate-pulse" : "bg-white/5 text-gray-400 border border-white/5"}`}>
+                          🔊 Speaker: {isSpeakerMode ? "ON" : "OFF"}
                         </span>
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${isPhoneMode ? "bg-purple-500/20 text-purple-300 border border-purple-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
-                          📞 Handset: ON
+                        <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${isPhoneMode ? "bg-purple-500/20 text-purple-300 border border-purple-500/20 animate-pulse" : "bg-white/5 text-gray-400 border border-white/5"}`}>
+                          📞 Handset: {isPhoneMode ? "ON" : "OFF"}
                         </span>
-                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${localMute ? "bg-red-500/25 text-red-300 border border-red-500/20 animate-pulse" : "bg-white/5 text-gray-450 border border-white/5"}`}>
-                          🎙️ Mute: ON
+                        <span className={`text-[8px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${localMute ? "bg-red-500/25 text-red-300 border border-red-500/20 animate-pulse" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/20"}`}>
+                          {localMute ? "🎙️ Mic: MUTED" : "🎙️ Mic: ON"}
                         </span>
                       </div>
                     </div>
@@ -22157,6 +22192,13 @@ ${orderDetails || "No orders found for this customer."}`;
             </div>
           )}
         </AnimatePresence>
+
+        {/* Global WebRTC Audio Player - Persistent audio stream element */}
+        <RemoteAudioPlayer
+          stream={remoteStream}
+          isPhoneMode={isPhoneMode}
+          isSpeakerMode={isSpeakerMode}
+        />
       </div>
     </div>
   );
