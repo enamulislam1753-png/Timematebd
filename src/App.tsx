@@ -633,7 +633,7 @@ const RemoteVideoView: React.FC<{ stream: MediaStream | null }> = ({ stream }) =
   );
 };
 
-const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boolean; isSpeakerMode: boolean }> = ({ stream }) => {
+const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boolean; isSpeakerMode: boolean }> = ({ stream, isPhoneMode, isSpeakerMode }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -649,9 +649,21 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
       el.volume = 1.0;
       el.muted = false;
 
-      const playAudio = () => {
-        el.play().catch((err) => {
-          console.warn("Remote audio play deferred, adding touch unlock listener:", err);
+      const playAudio = async () => {
+        try {
+          // Attempt to set output device sink if supported (speaker vs earpiece)
+          if ('setSinkId' in el && typeof (el as any).setSinkId === 'function') {
+            try {
+              if (isSpeakerMode) {
+                await (el as any).setSinkId('default');
+              }
+            } catch (err) {
+              console.warn("setSinkId audio routing notice:", err);
+            }
+          }
+          await el.play();
+        } catch (err) {
+          console.warn("Remote audio autoplay deferred, adding unlock listener:", err);
           const unlock = () => {
             el.play().then(() => {
               window.removeEventListener("touchstart", unlock);
@@ -660,14 +672,14 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
           };
           window.addEventListener("touchstart", unlock, { once: true });
           window.addEventListener("click", unlock, { once: true });
-        });
+        }
       };
 
       playAudio();
     } else {
       el.srcObject = null;
     }
-  }, [stream]);
+  }, [stream, isPhoneMode, isSpeakerMode]);
 
   return (
     <audio
@@ -675,7 +687,7 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
       autoPlay
       playsInline
       controls={false}
-      style={{ display: "none" }}
+      style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }}
     />
   );
 };
@@ -22151,6 +22163,12 @@ ${orderDetails || "No orders found for this customer."}`;
           )}
         </AnimatePresence>
 
+        {/* Global WebRTC Audio Player - Keeps voice stream playing continuously */}
+        <RemoteAudioPlayer
+          stream={remoteStream}
+          isPhoneMode={isPhoneMode}
+          isSpeakerMode={isSpeakerMode}
+        />
       </div>
     </div>
   );
