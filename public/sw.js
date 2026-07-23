@@ -32,58 +32,28 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests for offline caching
+  // Pass through all non-GET, API, or live dev/preview requests directly to network
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  
-  // Skip external APIs where real-time Firebase Auth or Firestore is handled
+
+  // Always bypass Service Worker for API, WebRTC, Firebase, Google, and dev assets
   if (
     url.origin.includes('firestore.googleapis.com') || 
     url.origin.includes('identitytoolkit.googleapis.com') ||
     url.origin.includes('firebase') ||
     url.origin.includes('google') ||
-    url.pathname.startsWith('/api/')
+    url.pathname.startsWith('/api/') ||
+    url.pathname.includes('/@vite/') ||
+    url.pathname.includes('/node_modules/')
   ) {
     return;
   }
 
-  // Network-First strategy for HTML, root, and JS/CSS assets to prevent white screen deadlocks
-  const isDocument = event.request.mode === 'navigate' || event.request.destination === 'document' || url.pathname === '/' || url.pathname.endsWith('.html');
-  const isScript = event.request.destination === 'script' || url.pathname.endsWith('.js');
-
-  if (isDocument || isScript) {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
-    return;
-  }
-
+  // Network-First strategy
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) return cachedResponse;
-      return fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      });
-    })
+    fetch(event.request)
+      .catch(() => caches.match(event.request))
   );
 });
 
