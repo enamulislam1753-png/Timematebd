@@ -58,6 +58,8 @@ import {
   Mic,
   MicOff,
   VideoOff,
+  Play,
+  Pause,
   Facebook,
   X,
   CreditCard,
@@ -689,6 +691,70 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
       controls={false}
       style={{ position: 'fixed', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }}
     />
+  );
+};
+
+const AudioMessagePlayer: React.FC<{ audioUrl: string; isMine?: boolean }> = ({ audioUrl, isMine }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setIsPlaying(true)).catch((err) => console.warn("Audio play error", err));
+    }
+  };
+
+  const formatTime = (sec: number) => {
+    if (!sec || isNaN(sec)) return "0:00";
+    const mins = Math.floor(sec / 60);
+    const secs = Math.floor(sec % 60);
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
+
+  return (
+    <div className={`flex items-center gap-2 my-1 p-2 rounded-xl border ${isMine ? "bg-indigo-700/80 border-indigo-400/30 text-white" : "bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-white/10 text-gray-800 dark:text-gray-100"}`}>
+      <audio
+        ref={audioRef}
+        src={audioUrl}
+        preload="metadata"
+        onLoadedMetadata={() => {
+          if (audioRef.current) setDuration(audioRef.current.duration);
+        }}
+        onTimeUpdate={() => {
+          if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+        }}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+      />
+      <button
+        type="button"
+        onClick={togglePlay}
+        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-transform active:scale-90 ${isMine ? "bg-white text-indigo-600 shadow-xs" : "bg-indigo-600 text-white shadow-xs"}`}
+      >
+        {isPlaying ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" className="ml-0.5" />}
+      </button>
+
+      <div className="flex-1 min-w-[110px] max-w-[160px]">
+        <div className="flex items-center justify-between text-[9px] font-bold mb-1 opacity-90">
+          <span>🎤 ভয়েস বার্তা</span>
+          <span>{formatTime(isPlaying ? currentTime : duration)}</span>
+        </div>
+        <div className="w-full bg-black/20 dark:bg-white/20 h-1.5 rounded-full overflow-hidden relative">
+          <div
+            className={`h-full transition-all duration-100 ${isMine ? "bg-white" : "bg-indigo-600"}`}
+            style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -3423,6 +3489,19 @@ export default function App() {
   const [customerSupportMessages, setCustomerSupportMessages] = useState<any[]>([]);
   const [isAiSupportTyping, setIsAiSupportTyping] = useState(false);
 
+  // Voice Note Recording States for Support Chat
+  const [isCustomerRecording, setIsCustomerRecording] = useState(false);
+  const [customerRecordingTime, setCustomerRecordingTime] = useState(0);
+  const customerMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const customerAudioChunksRef = useRef<Blob[]>([]);
+  const customerRecordTimerRef = useRef<any>(null);
+
+  const [isAdminRecording, setIsAdminRecording] = useState(false);
+  const [adminRecordingTime, setAdminRecordingTime] = useState(0);
+  const adminMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const adminAudioChunksRef = useRef<Blob[]>([]);
+  const adminRecordTimerRef = useRef<any>(null);
+
   // Real-Time Calling System States
   const [localMute, setLocalMute] = useState(false);
   const [localVideoOff, setLocalVideoOff] = useState(false);
@@ -3766,6 +3845,60 @@ export default function App() {
       },
     );
     return () => unsub();
+  }, []);
+
+  // Initial One-time System Permissions Request (Microphone, Camera, Location) on first app load
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+    const permRequested = localStorage.getItem("tm_app_permissions_requested_v1");
+    if (!permRequested) {
+      localStorage.setItem("tm_app_permissions_requested_v1", "true");
+      
+      const requestAllSystemPermissions = async () => {
+        // 1. Request Microphone & Camera
+        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            // Release media stream tracks immediately after granting permission
+            stream.getTracks().forEach((track) => track.stop());
+            localStorage.setItem("timemate_device_perm_ok", "true");
+          } catch (err) {
+            console.warn("Initial mic/camera permission prompt skipped or denied:", err);
+            // Fallback: try mic only if camera failed
+            try {
+              const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              audioStream.getTracks().forEach((track) => track.stop());
+              localStorage.setItem("timemate_device_perm_ok", "true");
+            } catch (aErr) {
+              console.warn("Initial audio permission skipped:", aErr);
+            }
+          }
+        }
+
+        // 2. Request Location
+        if ("geolocation" in navigator) {
+          try {
+            navigator.geolocation.getCurrentPosition(
+              () => {
+                console.log("Initial geolocation permission granted");
+              },
+              (err) => {
+                console.warn("Initial geolocation permission skipped or denied:", err);
+              },
+              { timeout: 10000, enableHighAccuracy: false }
+            );
+          } catch (gErr) {
+            console.warn("Geolocation request error:", gErr);
+          }
+        }
+      };
+
+      const timer = setTimeout(() => {
+        requestAllSystemPermissions();
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   // Notification Permission
@@ -6575,7 +6708,152 @@ ${orderDetails || "No orders found for this customer."}`;
     }
   };
 
-  const sendCustomerSupportMessage = async (eOrText: React.FormEvent | string) => {
+  // Voice Note Helper Functions
+  const startCustomerVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      customerMediaRecorderRef.current = mediaRecorder;
+      customerAudioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          customerAudioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsCustomerRecording(true);
+      setCustomerRecordingTime(0);
+
+      customerRecordTimerRef.current = setInterval(() => {
+        setCustomerRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access error for customer voice chat:", err);
+      addToast("মাইক্রোফোন পারমিশন পাওয়া যায়নি!", "error");
+    }
+  };
+
+  const stopAndSendCustomerVoice = async () => {
+    if (!customerMediaRecorderRef.current) return;
+
+    const recorder = customerMediaRecorderRef.current;
+    if (recorder.state !== "inactive") {
+      recorder.onstop = () => {
+        const audioBlob = new Blob(customerAudioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64Audio = reader.result as string;
+          sendCustomerSupportMessage("", base64Audio, customerRecordingTime);
+        };
+
+        if (recorder.stream) {
+          recorder.stream.getTracks().forEach((track) => track.stop());
+        }
+      };
+      recorder.stop();
+    }
+
+    if (customerRecordTimerRef.current) {
+      clearInterval(customerRecordTimerRef.current);
+      customerRecordTimerRef.current = null;
+    }
+    setIsCustomerRecording(false);
+    setCustomerRecordingTime(0);
+  };
+
+  const cancelCustomerVoiceRecording = () => {
+    if (customerMediaRecorderRef.current && customerMediaRecorderRef.current.state !== "inactive") {
+      customerMediaRecorderRef.current.onstop = null;
+      customerMediaRecorderRef.current.stop();
+      if (customerMediaRecorderRef.current.stream) {
+        customerMediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+    if (customerRecordTimerRef.current) {
+      clearInterval(customerRecordTimerRef.current);
+      customerRecordTimerRef.current = null;
+    }
+    setIsCustomerRecording(false);
+    setCustomerRecordingTime(0);
+    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "info");
+  };
+
+  const startAdminVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      adminMediaRecorderRef.current = mediaRecorder;
+      adminAudioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          adminAudioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsAdminRecording(true);
+      setAdminRecordingTime(0);
+
+      adminRecordTimerRef.current = setInterval(() => {
+        setAdminRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access error for admin voice chat:", err);
+      addToast("মাইক্রোফোন পারমিশন পাওয়া যায়নি!", "error");
+    }
+  };
+
+  const stopAndSendAdminVoice = async () => {
+    if (!adminMediaRecorderRef.current) return;
+
+    const recorder = adminMediaRecorderRef.current;
+    if (recorder.state !== "inactive") {
+      recorder.onstop = () => {
+        const audioBlob = new Blob(adminAudioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64Audio = reader.result as string;
+          sendRepresentativeReply("", base64Audio, adminRecordingTime);
+        };
+
+        if (recorder.stream) {
+          recorder.stream.getTracks().forEach((track) => track.stop());
+        }
+      };
+      recorder.stop();
+    }
+
+    if (adminRecordTimerRef.current) {
+      clearInterval(adminRecordTimerRef.current);
+      adminRecordTimerRef.current = null;
+    }
+    setIsAdminRecording(false);
+    setAdminRecordingTime(0);
+  };
+
+  const cancelAdminVoiceRecording = () => {
+    if (adminMediaRecorderRef.current && adminMediaRecorderRef.current.state !== "inactive") {
+      adminMediaRecorderRef.current.onstop = null;
+      adminMediaRecorderRef.current.stop();
+      if (adminMediaRecorderRef.current.stream) {
+        adminMediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+    if (adminRecordTimerRef.current) {
+      clearInterval(adminRecordTimerRef.current);
+      adminRecordTimerRef.current = null;
+    }
+    setIsAdminRecording(false);
+    setAdminRecordingTime(0);
+    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "info");
+  };
+
+  const sendCustomerSupportMessage = async (eOrText: React.FormEvent | string, audioUrl?: string, audioDuration?: number) => {
     let text = "";
     if (typeof eOrText === "string") {
       text = eOrText.trim();
@@ -6586,7 +6864,7 @@ ${orderDetails || "No orders found for this customer."}`;
       text = customerChatMessage.trim();
       setCustomerChatMessage("");
     }
-    if (!text) return;
+    if (!text && !audioUrl) return;
     
     let currentId = user?.uid || guestSession?.uid;
     let name = user?.displayName || guestSession?.name || "কাস্টমার";
@@ -6596,11 +6874,13 @@ ${orderDetails || "No orders found for this customer."}`;
     
     if (!currentId) return;
 
+    const messageText = audioUrl ? "🎤 ভয়েস বার্তা" : text;
+
     // Check if message is requesting human agent/admin
-    const textLower = text.toLowerCase();
+    const textLower = messageText.toLowerCase();
     const isAgentKeyword = textLower.includes("এজেন্ট") || textLower.includes("agent") || textLower.includes("এডমিন") || textLower.includes("admin") || textLower.includes("প্রতিনিধি") || textLower.includes("কথা বলতে চাই") || textLower.includes("মানুষ");
 
-    if (isAgentKeyword) {
+    if (isAgentKeyword && !audioUrl) {
       await requestAgentConnect(text);
       return;
     }
@@ -6610,7 +6890,9 @@ ${orderDetails || "No orders found for this customer."}`;
         senderId: currentId,
         senderName: name,
         senderRole: "customer",
-        text: text,
+        text: messageText,
+        audioUrl: audioUrl || null,
+        audioDuration: audioDuration || 0,
         timestamp: new Date().toISOString()
       });
       
@@ -6621,7 +6903,7 @@ ${orderDetails || "No orders found for this customer."}`;
         customerPhone: phone,
         customerEmail: email,
         isGuest: isGuest,
-        lastMessage: text,
+        lastMessage: messageText,
         lastMessageTime: new Date().toISOString(),
         unreadCount: increment(1),
         status: "open"
@@ -6629,7 +6911,7 @@ ${orderDetails || "No orders found for this customer."}`;
 
       // Trigger AI Support Auto-Reply with a 1-second delay
       setTimeout(() => {
-        triggerAiSupportAutoReply(currentId, text);
+        triggerAiSupportAutoReply(currentId, messageText);
       }, 1000);
     } catch (err) {
       console.error("Error sending support message:", err);
@@ -6637,7 +6919,7 @@ ${orderDetails || "No orders found for this customer."}`;
     }
   };
 
-  const sendRepresentativeReply = async (eOrText: React.FormEvent | string) => {
+  const sendRepresentativeReply = async (eOrText: React.FormEvent | string, audioUrl?: string, audioDuration?: number) => {
     let text = "";
     if (typeof eOrText === "string") {
       text = eOrText.trim();
@@ -6648,25 +6930,29 @@ ${orderDetails || "No orders found for this customer."}`;
       text = adminChatMessage.trim();
       setAdminChatMessage("");
     }
-    if (!text || !activeSupportRoomId) return;
+    if ((!text && !audioUrl) || !activeSupportRoomId) return;
     
     let senderName = profile?.fullName || profile?.name || user?.displayName || "প্রতিনিধি";
     let senderRole = "admin";
     if (profile?.role === "admin" || profile?.role === "staff") {
       senderRole = profile.role;
     }
+
+    const messageText = audioUrl ? "🎤 ভয়েস বার্তা" : text;
     
     try {
       await addDoc(collection(db, "support_rooms", activeSupportRoomId, "messages"), {
         senderId: user?.uid || "rep",
         senderName: senderName,
         senderRole: senderRole,
-        text: text,
+        text: messageText,
+        audioUrl: audioUrl || null,
+        audioDuration: audioDuration || 0,
         timestamp: new Date().toISOString()
       });
       
       await updateDoc(doc(db, "support_rooms", activeSupportRoomId), {
-        lastMessage: text,
+        lastMessage: messageText,
         lastMessageTime: new Date().toISOString(),
         unreadCount: 0,
         status: "active"
@@ -6957,7 +7243,11 @@ ${orderDetails || "No orders found for this customer."}`;
                                 <span>{m.senderName} ({m.senderRole === "employee" ? "Rider" : m.senderRole === "staff" ? "Staff" : m.senderRole === "admin" ? "Admin" : m.senderRole})</span>
                                 <span>{timeStr}</span>
                               </div>
-                              <p className="text-xs font-semibold leading-relaxed break-words font-sans">{m.text}</p>
+                              {m.audioUrl ? (
+                                <AudioMessagePlayer audioUrl={m.audioUrl} isMine={isMe} />
+                              ) : (
+                                <p className="text-xs font-semibold leading-relaxed break-words font-sans">{m.text}</p>
+                              )}
                               
                               {/* Message Delete Trigger - Styled accessible and visible on both desktop & mobile */}
                               <button
@@ -6989,31 +7279,68 @@ ${orderDetails || "No orders found for this customer."}`;
                   </div>
                   
                   {/* Input Form typing bar */}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const form = e.currentTarget;
-                      const input = form.elements.namedItem("representativeMsg") as HTMLInputElement;
-                      if (input && input.value.trim()) {
-                        sendRepresentativeReply(input.value);
-                        input.value = "";
-                      }
-                    }}
-                    className="p-4 border-t border-gray-150 dark:border-white/5 flex gap-2 bg-slate-50/50 dark:bg-[#0f172a]/60 shrink-0"
-                  >
-                    <input
-                      type="text"
-                      name="representativeMsg"
-                      placeholder="এখানে কাস্টমারের জন্য বার্তা টাইপ করুন..."
-                      className="flex-1 px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-gray-800 dark:text-white"
-                    />
-                    <button
-                      type="submit"
-                      className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow cursor-pointer transition-all active:scale-95 whitespace-nowrap"
+                  {isAdminRecording ? (
+                    <div className="p-4 border-t border-red-200 dark:border-red-900/50 flex items-center justify-between bg-red-50 dark:bg-red-950/30 shrink-0 gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping shrink-0" />
+                        <span className="text-xs font-bold text-red-600 dark:text-red-400">
+                          ভয়েস রেকর্ড হচ্ছে... {Math.floor(adminRecordingTime / 60)}:{(adminRecordingTime % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelAdminVoiceRecording}
+                          className="px-3 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-slate-800 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1"
+                          title="বাতিল করুন"
+                        >
+                          <Trash2 size={14} /> বাতিল
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopAndSendAdminVoice}
+                          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 shadow"
+                          title="পাঠান"
+                        >
+                          <Send size={12} /> পাঠাও
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.currentTarget;
+                        const input = form.elements.namedItem("representativeMsg") as HTMLInputElement;
+                        if (input && input.value.trim()) {
+                          sendRepresentativeReply(input.value);
+                          input.value = "";
+                        }
+                      }}
+                      className="p-4 border-t border-gray-150 dark:border-white/5 flex gap-2 bg-slate-50/50 dark:bg-[#0f172a]/60 shrink-0 items-center"
                     >
-                      উত্তর দিন <Send size={12} className="inline ml-1" />
-                    </button>
-                  </form>
+                      <input
+                        type="text"
+                        name="representativeMsg"
+                        placeholder="এখানে কাস্টমারের জন্য বার্তা টাইপ করুন..."
+                        className="flex-1 px-4 py-3 text-xs rounded-xl bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-gray-800 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={startAdminVoiceRecording}
+                        className="p-3 bg-gray-100 dark:bg-slate-800 hover:bg-red-500 hover:text-white text-gray-600 dark:text-gray-300 rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
+                        title="ভয়েস বার্তা রেকর্ড করুন"
+                      >
+                        <Mic size={14} />
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow cursor-pointer transition-all active:scale-95 whitespace-nowrap"
+                      >
+                        উত্তর দিন <Send size={12} className="inline ml-1" />
+                      </button>
+                    </form>
+                  )}
                 </>
               );
             })()
@@ -21921,7 +22248,11 @@ ${orderDetails || "No orders found for this customer."}`;
                                    <span>{isRep ? `প্রতিনিধি (${m.senderName})` : "আমি"}</span>
                                    <span>{timeStr}</span>
                                  </div>
-                                 <p className="text-[11px] font-bold font-sans leading-relaxed break-words text-left">{m.text}</p>
+                                 {m.audioUrl ? (
+                                   <AudioMessagePlayer audioUrl={m.audioUrl} isMine={!isRep} />
+                                 ) : (
+                                   <p className="text-[11px] font-bold font-sans leading-relaxed break-words text-left">{m.text}</p>
+                                 )}
 
                                  {!isRep && (
                                    <button
@@ -21999,32 +22330,69 @@ ${orderDetails || "No orders found for this customer."}`;
                     ))}
                   </div>
 
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const form = e.currentTarget;
-                      const input = form.elements.namedItem("customerMsg") as HTMLInputElement;
-                      if (input && input.value.trim()) {
-                        sendCustomerSupportMessage(input.value);
-                        input.value = "";
-                      }
-                    }}
-                    className="p-3 bg-white dark:bg-slate-900 flex gap-1.5 shrink-0"
-                  >
-                  <input
-                    type="text"
-                    name="customerMsg"
-                    required
-                    placeholder="আপনার বার্তাটি এখানে লিখুন..."
-                    className="flex-1 px-3 py-2 bg-gray-50 dark:bg-slate-950 border border-gray-150 dark:border-white/10 text-[11px] rounded-lg font-bold text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <button
-                    type="submit"
-                    className="p-2.5 bg-indigo-600 hover:bg-indigo-750 text-white rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
-                  >
-                    <Send size={12} />
-                  </button>
-                </form>
+                  {isCustomerRecording ? (
+                    <div className="p-3 bg-red-50 dark:bg-red-950/30 border-t border-red-200 dark:border-red-900/50 flex items-center justify-between shrink-0 gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping shrink-0" />
+                        <span className="text-[11px] font-bold text-red-600 dark:text-red-400">
+                          ভয়েস রেকর্ড হচ্ছে... {Math.floor(customerRecordingTime / 60)}:{(customerRecordingTime % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={cancelCustomerVoiceRecording}
+                          className="p-2 bg-gray-200 hover:bg-gray-300 dark:bg-slate-800 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1"
+                          title="বাতিল করুন"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopAndSendCustomerVoice}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1 shadow-xs"
+                          title="পাঠান"
+                        >
+                          <Send size={12} /> পাঠাও
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.currentTarget;
+                        const input = form.elements.namedItem("customerMsg") as HTMLInputElement;
+                        if (input && input.value.trim()) {
+                          sendCustomerSupportMessage(input.value);
+                          input.value = "";
+                        }
+                      }}
+                      className="p-3 bg-white dark:bg-slate-900 flex gap-1.5 shrink-0 items-center"
+                    >
+                      <input
+                        type="text"
+                        name="customerMsg"
+                        placeholder="আপনার বার্তাটি এখানে লিখুন..."
+                        className="flex-1 px-3 py-2 bg-gray-50 dark:bg-slate-950 border border-gray-150 dark:border-white/10 text-[11px] rounded-lg font-bold text-gray-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={startCustomerVoiceRecording}
+                        className="p-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-red-500 hover:text-white text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
+                        title="ভয়েস বার্তা রেকর্ড করুন"
+                      >
+                        <Mic size={13} />
+                      </button>
+                      <button
+                        type="submit"
+                        className="p-2.5 bg-indigo-600 hover:bg-indigo-750 text-white rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
+                        title="মেসেজ পাঠান"
+                      >
+                        <Send size={12} />
+                      </button>
+                    </form>
+                  )}
               </div>
               )}
             </motion.div>
