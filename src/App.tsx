@@ -63,6 +63,7 @@ import {
   Facebook,
   X,
   CreditCard,
+  Paperclip,
   Send,
   Search,
   MessageSquare,
@@ -3502,6 +3503,10 @@ export default function App() {
   const adminAudioChunksRef = useRef<Blob[]>([]);
   const adminRecordTimerRef = useRef<any>(null);
 
+  // File Upload Refs for Support Chat
+  const customerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const adminFileInputRef = useRef<HTMLInputElement | null>(null);
+
   // Real-Time Calling System States
   const [localMute, setLocalMute] = useState(false);
   const [localVideoOff, setLocalVideoOff] = useState(false);
@@ -6853,7 +6858,52 @@ ${orderDetails || "No orders found for this customer."}`;
     addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "info");
   };
 
-  const sendCustomerSupportMessage = async (eOrText: React.FormEvent | string, audioUrl?: string, audioDuration?: number) => {
+  const handleCustomerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      addToast("ফাইল সাইজ সর্বোচ্চ ৮ মেগাবাইটের মধ্যে হতে হবে!", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = () => {
+      const base64Url = reader.result as string;
+      sendCustomerSupportMessage("", undefined, undefined, {
+        url: base64Url,
+        name: file.name,
+        type: file.type
+      });
+    };
+    e.target.value = "";
+  };
+
+  const handleAdminFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      addToast("ফাইল সাইজ সর্বোচ্চ ৮ মেগাবাইটের মধ্যে হতে হবে!", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = () => {
+      const base64Url = reader.result as string;
+      sendRepresentativeReply("", undefined, undefined, {
+        url: base64Url,
+        name: file.name,
+        type: file.type
+      });
+    };
+    e.target.value = "";
+  };
+
+  const sendCustomerSupportMessage = async (
+    eOrText: React.FormEvent | string,
+    audioUrl?: string,
+    audioDuration?: number,
+    fileData?: { url: string; name: string; type: string }
+  ) => {
     let text = "";
     if (typeof eOrText === "string") {
       text = eOrText.trim();
@@ -6864,7 +6914,7 @@ ${orderDetails || "No orders found for this customer."}`;
       text = customerChatMessage.trim();
       setCustomerChatMessage("");
     }
-    if (!text && !audioUrl) return;
+    if (!text && !audioUrl && !fileData) return;
     
     let currentId = user?.uid || guestSession?.uid;
     let name = user?.displayName || guestSession?.name || "কাস্টমার";
@@ -6874,13 +6924,13 @@ ${orderDetails || "No orders found for this customer."}`;
     
     if (!currentId) return;
 
-    const messageText = audioUrl ? "🎤 ভয়েস বার্তা" : text;
+    const messageText = fileData ? `📎 ফাইল: ${fileData.name}` : audioUrl ? "🎤 ভয়েস বার্তা" : text;
 
     // Check if message is requesting human agent/admin
     const textLower = messageText.toLowerCase();
     const isAgentKeyword = textLower.includes("এজেন্ট") || textLower.includes("agent") || textLower.includes("এডমিন") || textLower.includes("admin") || textLower.includes("প্রতিনিধি") || textLower.includes("কথা বলতে চাই") || textLower.includes("মানুষ");
 
-    if (isAgentKeyword && !audioUrl) {
+    if (isAgentKeyword && !audioUrl && !fileData) {
       await requestAgentConnect(text);
       return;
     }
@@ -6893,6 +6943,9 @@ ${orderDetails || "No orders found for this customer."}`;
         text: messageText,
         audioUrl: audioUrl || null,
         audioDuration: audioDuration || 0,
+        fileUrl: fileData?.url || null,
+        fileName: fileData?.name || null,
+        fileType: fileData?.type || null,
         timestamp: new Date().toISOString()
       });
       
@@ -6919,7 +6972,12 @@ ${orderDetails || "No orders found for this customer."}`;
     }
   };
 
-  const sendRepresentativeReply = async (eOrText: React.FormEvent | string, audioUrl?: string, audioDuration?: number) => {
+  const sendRepresentativeReply = async (
+    eOrText: React.FormEvent | string,
+    audioUrl?: string,
+    audioDuration?: number,
+    fileData?: { url: string; name: string; type: string }
+  ) => {
     let text = "";
     if (typeof eOrText === "string") {
       text = eOrText.trim();
@@ -6930,7 +6988,7 @@ ${orderDetails || "No orders found for this customer."}`;
       text = adminChatMessage.trim();
       setAdminChatMessage("");
     }
-    if ((!text && !audioUrl) || !activeSupportRoomId) return;
+    if ((!text && !audioUrl && !fileData) || !activeSupportRoomId) return;
     
     let senderName = profile?.fullName || profile?.name || user?.displayName || "প্রতিনিধি";
     let senderRole = "admin";
@@ -6938,7 +6996,7 @@ ${orderDetails || "No orders found for this customer."}`;
       senderRole = profile.role;
     }
 
-    const messageText = audioUrl ? "🎤 ভয়েস বার্তা" : text;
+    const messageText = fileData ? `📎 ফাইল: ${fileData.name}` : audioUrl ? "🎤 ভয়েস বার্তা" : text;
     
     try {
       await addDoc(collection(db, "support_rooms", activeSupportRoomId, "messages"), {
@@ -6948,6 +7006,9 @@ ${orderDetails || "No orders found for this customer."}`;
         text: messageText,
         audioUrl: audioUrl || null,
         audioDuration: audioDuration || 0,
+        fileUrl: fileData?.url || null,
+        fileName: fileData?.name || null,
+        fileType: fileData?.type || null,
         timestamp: new Date().toISOString()
       });
       
