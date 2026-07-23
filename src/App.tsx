@@ -1463,9 +1463,11 @@ export default function App() {
   >(null);
 
   const [showApkBanner, setShowApkBanner] = useState(() => {
-    if (typeof window !== "undefined") {
-      return !localStorage.getItem("hideApkBanner");
-    }
+    try {
+      if (typeof window !== "undefined") {
+        return !localStorage.getItem("hideApkBanner");
+      }
+    } catch (e) {}
     return true;
   });
 
@@ -2795,10 +2797,10 @@ export default function App() {
       return [];
     }
   });
-  const [loading, setLoading] = useState(() => !isAppInstalledOnce);
-  const [isOpening, setIsOpening] = useState(() => !isAppInstalledOnce);
-  const [loadingPercent, setLoadingPercent] = useState(() => isAppInstalledOnce ? 100 : 0);
-  const [loadingStatusText, setLoadingStatusText] = useState("⚡ টাইমমেট লোকাল ক্যাশ সংযোগ...");
+  const [loading, setLoading] = useState(false);
+  const [isOpening, setIsOpening] = useState(false);
+  const [loadingPercent, setLoadingPercent] = useState(100);
+  const [loadingStatusText, setLoadingStatusText] = useState("⚡ টাইমমেট সংযোগ সম্পন্ন");
   const [reviewsLimit, setReviewsLimit] = useState(12);
   const [usersLimit, setUsersLimit] = useState(20);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
@@ -3101,7 +3103,9 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem("tm_order_form", JSON.stringify(orderForm));
+    try {
+      localStorage.setItem("tm_order_form", JSON.stringify(orderForm));
+    } catch (e) {}
   }, [orderForm]);
 
   const [services, setServices] = useState<any[]>(() => {
@@ -3197,7 +3201,9 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem("tm_courier_form", JSON.stringify(courierForm));
+    try {
+      localStorage.setItem("tm_courier_form", JSON.stringify(courierForm));
+    } catch (e) {}
   }, [courierForm]);
 
   const handleBackToHome = (fromForm: 'order' | 'courier') => {
@@ -3318,7 +3324,11 @@ export default function App() {
 
   // Anti-Hacker Shield & Safe Mode State Managers
   const [isSafeMode, setIsSafeMode] = useState<boolean>(() => {
-    return localStorage.getItem("tm_anti_hacker_safe_mode") === "true";
+    try {
+      return localStorage.getItem("tm_anti_hacker_safe_mode") === "true";
+    } catch {
+      return false;
+    }
   });
   const [safeModeReason, setSafeModeReason] = useState<string>("Suspicious connection or VPN Spoof detected.");
   const [securityPinInput, setSecurityPinInput] = useState("");
@@ -7313,7 +7323,11 @@ ${orderDetails || "No orders found for this customer."}`;
   const AnnouncementSlideshow = ({ items }: { items: any[] }) => {
     const [index, setIndex] = useState(0);
     const [isVisible, setIsVisible] = useState(() => {
-      return localStorage.getItem("hideAnnouncements") !== "true";
+      try {
+        return localStorage.getItem("hideAnnouncements") !== "true";
+      } catch {
+        return true;
+      }
     });
 
     // Touch swiping state
@@ -8853,7 +8867,9 @@ ${orderDetails || "No orders found for this customer."}`;
                 <button
                   onClick={() => {
                     setShowApkBanner(false);
-                    localStorage.setItem("hideApkBanner", "true");
+                    try {
+                      localStorage.setItem("hideApkBanner", "true");
+                    } catch (e) {}
                   }}
                   className="px-3 py-1 bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-white text-[10px] sm:text-[11px] font-bold rounded-xl cursor-pointer"
                 >
