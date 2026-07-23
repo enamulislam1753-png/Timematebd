@@ -1,4 +1,4 @@
-const CACHE_NAME = 'timemate-pwa-v2';
+const CACHE_NAME = 'timemate-pwa-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -7,11 +7,12 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[Service Worker] Pre-caching offline support assets...');
       return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+    }).catch(() => {})
   );
 });
 
@@ -40,14 +41,20 @@ self.addEventListener('fetch', (event) => {
   if (
     url.origin.includes('firestore.googleapis.com') || 
     url.origin.includes('identitytoolkit.googleapis.com') ||
+    url.origin.includes('firebase') ||
+    url.origin.includes('google') ||
     url.pathname.startsWith('/api/')
   ) {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
+  // Network-First strategy for HTML, root, and JS/CSS assets to prevent white screen deadlocks
+  const isDocument = event.request.mode === 'navigate' || event.request.destination === 'document' || url.pathname === '/' || url.pathname.endsWith('.html');
+  const isScript = event.request.destination === 'script' || url.pathname.endsWith('.js');
+
+  if (isDocument || isScript) {
+    event.respondWith(
+      fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             const responseToCache = networkResponse.clone();
@@ -58,10 +65,24 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Silent catch fallback to cache
-        });
+          return caches.match(event.request);
+        })
+    );
+    return;
+  }
 
-      return cachedResponse || fetchPromise;
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) return cachedResponse;
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      });
     })
   );
 });

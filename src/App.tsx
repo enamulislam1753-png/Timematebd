@@ -4273,24 +4273,20 @@ export default function App() {
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
 
-    // Handle any redirect login errors (e.g. from Vercel domain issues)
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result) {
-          addToast("গুগল রিডাইরেক্ট লগইন সফল হয়েছে!", "success");
-        }
-      })
-      .catch((e: any) => {
-        console.error("Redirect sign-in error:", e);
-        if (e.code === "auth/unauthorized-domain" || e.message?.includes("unauthorized-domain") || e.message?.includes("unauthorized client")) {
-          addToast(
-            "আপনার Vercel বা লাইভ ডোমেনটি ফায়ারবেস কনসোলের Authorized Domains তালিকায় অ্যাড করা নেই! দয়া করে ফায়ারবেস কনসোল -> Authentication -> Settings -> Authorized Domains-এ আপনার Vercel ডোমেনটি অ্যাড করুন।",
-            "error",
-          );
-        } else {
-          addToast(`রিডাইরেক্ট লগইন ব্যর্থ হয়েছে: ${e.message}`, "error");
-        }
-      });
+    // Handle any redirect login errors safely
+    try {
+      getRedirectResult(auth)
+        .then((result) => {
+          if (result) {
+            addToast("গুগল রিডাইরেক্ট লগইন সফল হয়েছে!", "success");
+          }
+        })
+        .catch((e: any) => {
+          console.warn("Redirect sign-in check notice:", e);
+        });
+    } catch (e) {
+      console.warn("getRedirectResult safe catch:", e);
+    }
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (u) => {
       if (!u && typeof localStorage !== "undefined" && localStorage.getItem("admin_login_override") === "true") {
@@ -4443,7 +4439,7 @@ export default function App() {
         const r: any[] = [];
         snapshot.forEach((doc) => r.push({ id: doc.id, ...doc.data() }));
         setReviews(r);
-        localStorage.setItem("tm_cache_reviews", JSON.stringify(r));
+        try { localStorage.setItem("tm_cache_reviews", JSON.stringify(r)); } catch {}
       },
       (err) => handleFirestoreError(err, "LIST", "reviews"),
     );
@@ -4454,7 +4450,7 @@ export default function App() {
         const a: any[] = [];
         snapshot.forEach((doc) => a.push({ id: doc.id, ...doc.data() }));
         setAnnouncements(a);
-        localStorage.setItem("tm_cache_announcements", JSON.stringify(a));
+        try { localStorage.setItem("tm_cache_announcements", JSON.stringify(a)); } catch {}
       },
       (err) => handleFirestoreError(err, "LIST", "announcements"),
     );
@@ -4465,7 +4461,7 @@ export default function App() {
         const s: any[] = [];
         snapshot.forEach((doc) => s.push({ id: doc.id, ...doc.data() }));
         setServices(s);
-        localStorage.setItem("tm_cache_services", JSON.stringify(s));
+        try { localStorage.setItem("tm_cache_services", JSON.stringify(s)); } catch {}
       },
       (err) => handleFirestoreError(err, "LIST", "services"),
     );
@@ -4498,7 +4494,7 @@ export default function App() {
             Rocket: data.Rocket || "01500000000",
           };
           setPaymentSettings(pSettings);
-          localStorage.setItem("tm_cache_payment_settings", JSON.stringify(pSettings));
+          try { localStorage.setItem("tm_cache_payment_settings", JSON.stringify(pSettings)); } catch {}
         }
       },
       (err) => {
@@ -4761,7 +4757,7 @@ export default function App() {
         const o: any[] = [];
         snapshot.forEach((doc) => o.push({ id: doc.id, ...doc.data() }));
         setOrders(o);
-        localStorage.setItem("tm_cache_orders", JSON.stringify(o));
+        try { localStorage.setItem("tm_cache_orders", JSON.stringify(o)); } catch {}
         setLoading(false);
 
         if (initialOrdersLoaded) {
