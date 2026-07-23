@@ -225,6 +225,16 @@ body.dark,
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
+/* Super speed typing input optimization & hardware acceleration */
+input, select, textarea {
+  transition: border-color 0.08s ease, background-color 0.08s ease, box-shadow 0.08s ease !important;
+  will-change: auto;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Base input field styling overrides for premium feels */
 input::placeholder,
 textarea::placeholder {

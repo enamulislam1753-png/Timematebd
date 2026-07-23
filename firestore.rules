@@ -171,7 +171,7 @@ service cloud.firestore {
                          (resource.data.userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'বাতিল') ||
                          (
                            isOwner(existing().userId) && (
-                             incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethod', 'paymentNumber', 'payFrom', 'txnId', 'transactionId', 'paymentSubmittedAt', 'status', 'discountCode', 'discountedCharge', 'charge']) &&
                              incoming().status in ['নতুন', 'মূল্য নির্ধারণ', 'পেমেন্ট যাচাই', 'পেইড', 'পরিশোধিত', 'বাতিল']
                            )
                          )

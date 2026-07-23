@@ -5990,14 +5990,21 @@ export default function App() {
         updateData.discountCode = applied.coupon.code;
         updateData.discountedCharge = applied.finalPrice;
       }
-      await updateDoc(orderRef, updateData);
-      addToast("পেমেন্ট রিকোয়েস্ট পাঠানো হয়েছে!");
-      createNotification(
-        "9xG6zcPwytNEOEohAVupu7DLMyT2",
-        "পেমেন্ট ভেরিফিকেশন",
-        `অর্ডার ${orderId}-এর পেমেন্ট যাচাই করতে হবে। TxID: ${txid}`,
-        "system",
-      );
+      try {
+        await updateDoc(orderRef, updateData);
+      } catch (err) {
+        console.warn("updateDoc failed in submitUserPaymentDirect, fallback to setDoc merge:", err);
+        await setDoc(orderRef, updateData, { merge: true });
+      }
+      addToast("পেমেন্ট রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!", "success");
+      try {
+        createNotification(
+          "admin",
+          "পেমেন্ট ভেরিফিকেশন",
+          `অর্ডার ${orderId}-এর পেমেন্ট যাচাই করতে হবে। TxID: ${txid}`,
+          "system",
+        );
+      } catch (_) {}
     } catch (e) {
       console.error("Payment submit error:", e);
       addToast("সাবমিট ব্যর্থ হয়েছে, আবার চেষ্টা করুন", "error");
@@ -7349,7 +7356,7 @@ ${orderDetails || "No orders found for this customer."}`;
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -50 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
             className="grid grid-cols-1 md:grid-cols-12 gap-5 p-5 sm:p-7 items-center min-h-[12.5rem] sm:min-h-[14.5rem]"
           >
             {/* Left/Content side */}
@@ -21966,7 +21973,7 @@ ${orderDetails || "No orders found for this customer."}`;
                 initial={{ opacity: 0, scale: 0.9, y: 30 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 30 }}
-                transition={{ type: "spring", duration: 0.5 }}
+                transition={{ type: "tween", duration: 0.12, ease: "easeOut" }}
                 className="bg-white dark:bg-slate-900 border border-gray-150 dark:border-white/10 p-7 rounded-[2.5rem] shadow-2xl w-full max-w-sm relative overflow-hidden"
               >
                 {/* Visual decoration grid */}
