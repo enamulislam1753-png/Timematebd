@@ -22086,7 +22086,32 @@ ${orderDetails || "No orders found for this customer."}`;
                 </div>
               </button>
 
-              {/* Option 2: Facebook Messenger */}
+              {/* Option 2: Voice Chat & Voice Note Recording */}
+              <button
+                onClick={() => {
+                  setIsSupportWidgetOpen(true);
+                  setIsSupportMenuOpen(false);
+                  if (user?.uid || guestSession?.uid) {
+                    setTimeout(() => {
+                      startCustomerVoiceRecording();
+                    }, 300);
+                  }
+                }}
+                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-red-50/70 dark:bg-red-500/10 hover:bg-red-100/90 dark:hover:bg-red-550/20 text-left transition-all cursor-pointer border border-red-200/50 dark:border-red-800/30 group"
+              >
+                <div className="w-8.5 h-8.5 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                  <Mic size={16} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1">
+                    <span>ভয়েস চ্যাট ও ভয়েস বার্তা</span>
+                    <span className="px-1.5 py-0.2 bg-red-600 text-white text-[8px] font-black rounded-full uppercase">NEW</span>
+                  </p>
+                  <p className="text-[9px] text-gray-500 dark:text-gray-400 font-bold mt-0.5">ভয়েস বার্তা রেকর্ড করে পাঠান</p>
+                </div>
+              </button>
+
+              {/* Option 3: Facebook Messenger */}
               <a
                 href="https://www.facebook.com/profile.php?id=61575319627556"
                 target="_blank"
@@ -22310,10 +22335,11 @@ ${orderDetails || "No orders found for this customer."}`;
                       💡 দ্রুত প্রশ্ন করার জন্য নিচের যেকোনো একটিতে চাপুন:
                     </span>
                     {[
+                      { label: "🎤 ভয়েস বার্তা", action: () => startCustomerVoiceRecording() },
                       { label: "👨‍💼 এডমিন কানেক্ট", action: () => requestAgentConnect("👨‍💼 আমি এডমিন বা অনলাইন সাপোর্ট প্রতিনিধির সাথে সরাসরি চ্যাট করতে চাই।") },
                       { label: "🕒 সার্ভিসসমূহ", action: () => sendCustomerSupportMessage("টাইমমেট কি কি সার্ভিস দেয়?") },
                       { label: "🛒 অর্ডার করার নিয়ম", action: () => sendCustomerSupportMessage("কিভাবে সার্ভিস নিবো?") },
-                      { label: "💳 পেমেন্ট পদ্ধতি", action: () => sendCustomerSupportMessage("কিভাবে পেমেন্ট করবো?") }
+                      { label: "💳 পেমент পদ্ধতি", action: () => sendCustomerSupportMessage("কিভাবে পেমেন্ট করবো?") }
                     ].map((q, idx) => (
                       <button
                         key={idx}
@@ -22321,6 +22347,8 @@ ${orderDetails || "No orders found for this customer."}`;
                         onClick={q.action}
                         className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer shadow-2xs ${
                           idx === 0
+                            ? "bg-red-500/10 dark:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-600 hover:text-white"
+                            : idx === 1
                             ? "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white"
                             : "bg-white dark:bg-slate-900 hover:bg-indigo-50 hover:dark:bg-indigo-950/30 border border-gray-150 dark:border-white/10 text-gray-750 dark:text-gray-200 hover:text-indigo-600"
                         }`}
@@ -22379,10 +22407,11 @@ ${orderDetails || "No orders found for this customer."}`;
                       <button
                         type="button"
                         onClick={startCustomerVoiceRecording}
-                        className="p-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-red-500 hover:text-white text-gray-600 dark:text-gray-300 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center shrink-0"
-                        title="ভয়েস বার্তা রেকর্ড করুন"
+                        className="px-2.5 py-2 bg-red-50 dark:bg-red-950/40 hover:bg-red-600 hover:text-white text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 shrink-0 shadow-2xs"
+                        title="ভয়েস বার্তা রেকর্ড করুন (🎤)"
                       >
-                        <Mic size={13} />
+                        <Mic size={14} />
+                        <span className="text-[10px] font-black hidden sm:inline">ভয়েস</span>
                       </button>
                       <button
                         type="submit"
