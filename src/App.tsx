@@ -4517,8 +4517,9 @@ export default function App() {
             iosUrl: data.iosUrl || "",
             apkFileName: data.apkFileName || "",
             iosFileName: data.iosFileName || "",
-            apkBase64: data.apkBase64 || "",
-            iosBase64: data.iosBase64 || "",
+            // Truncate or omit huge base64 strings from global state to keep memory footprint light
+            apkBase64: (data.apkBase64 && data.apkBase64.length < 500000) ? data.apkBase64 : "",
+            iosBase64: (data.iosBase64 && data.iosBase64.length < 500000) ? data.iosBase64 : "",
             isEnabled: data.isEnabled !== false,
           });
         }
@@ -5020,51 +5021,8 @@ export default function App() {
     } catch {}
   }, [language]);
 
-  // Auto Review Generator (System generated every minute)
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    const names = [
-      "রিয়াজ আহমেদ",
-      "মেহেদী হাসান",
-      "তানিম চৌধুরী",
-      "সজীব মাহমুদ",
-      "রাব্বি ইসলাম",
-      "আসিফুর রহমান",
-      "ইকবাল হোসেন",
-      "সোহেল রানা",
-      "মুন্না ভাই",
-      "জাহিদ হাসান",
-    ];
-    const comments = [
-      "অসাধারণ সেবা!",
-      "অনেক দ্রুত কাজ শেষ করে দিয়েছে।",
-      "ব্যক্তিগতভাবে আমি খুবই সন্তুষ্ট।",
-      "প্রফেশনাল টিম এবং সঠিক সময়ে ডেলিভারি।",
-      "টাইমমেট বিডি সত্যিই সেরা সার্ভিস দিচ্ছে।",
-      "তাদের ব্যবহার অনেক মার্জিত।",
-      "ধন্যবাদ আমার কাজটা সহজ করে দেওয়ার জন্য।",
-    ];
-
-    const interval = setInterval(async () => {
-      try {
-        const randomName = names[Math.floor(Math.random() * names.length)];
-        const randomComment =
-          comments[Math.floor(Math.random() * comments.length)];
-        await addDoc(collection(db, "reviews"), {
-          name: randomName,
-          comment: randomComment,
-          rating: 5,
-          date: "স্বয়ংক্রিয়",
-          timestamp: new Date().toISOString(),
-        });
-      } catch (e) {
-        console.error("Auto review generation failed:", e);
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [user]);
+  // Auto Review Generator removed to prevent network congestion
+  useEffect(() => {}, []);
 
   // Actions
   const handleAuth = async (e: React.FormEvent) => {
@@ -22193,12 +22151,6 @@ ${orderDetails || "No orders found for this customer."}`;
           )}
         </AnimatePresence>
 
-        {/* Global WebRTC Audio Player - Persistent audio stream element */}
-        <RemoteAudioPlayer
-          stream={remoteStream}
-          isPhoneMode={isPhoneMode}
-          isSpeakerMode={isSpeakerMode}
-        />
       </div>
     </div>
   );
