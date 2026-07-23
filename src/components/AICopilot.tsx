@@ -62,21 +62,22 @@ const AICopilotChatForm: React.FC<AICopilotChatFormProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2.5 pt-4 border-t border-white/5">
+    <form onSubmit={handleSubmit} className="flex gap-2 items-center p-3 bg-slate-900/90 border-t border-white/10 shrink-0">
       <input
         type="text"
         value={localVal}
         onChange={(e) => setLocalVal(e.target.value)}
-        placeholder={isAiModeOn ? "যেকোনো প্রশ্ন জিজ্ঞেস করুন বা অর্ডার আপডেট করুন..." : "এআই মোড অফ আছে"}
+        placeholder={isAiModeOn ? "মেসেঞ্জারে বার্তা লিখুন (উদাঃ ORD-109 এর মূল্য ৫০০ টাকা করুন)..." : "এআই মোড বন্ধ রয়েছে"}
         disabled={!isAiModeOn || isLoading}
-        className="flex-1 px-4 py-3.5 bg-black/40 border border-white/10 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-bold placeholder-gray-500 disabled:opacity-50 animate-none"
+        className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/10 rounded-full outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-xs font-semibold text-white placeholder-gray-400 disabled:opacity-50"
       />
       <button
         type="submit"
         disabled={!isAiModeOn || isLoading || !localVal.trim()}
-        className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 transition-all rounded-2xl text-white font-black cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center active:scale-95 border-0"
+        className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 transition-all rounded-full text-white font-bold cursor-pointer shadow-lg shadow-indigo-600/30 flex items-center justify-center shrink-0 active:scale-95 border-0"
+        title="পাঠান"
       >
-        <Send size={16} />
+        <Send size={15} />
       </button>
     </form>
   );
@@ -1021,41 +1022,78 @@ Rules:
 
       {/* Layout Grid */}
       <div className="grid grid-cols-1 gap-8 mt-8">
-        {/* Main Chat Bot Thread Interface - FULL WIDTH */}
+        {/* Main Messenger Chat Bot Interface */}
         <div className="space-y-6">
-          <div className="bg-black/30 p-6 sm:p-8 rounded-[2.5rem] border border-white/5 space-y-4 min-h-[550px] flex flex-col justify-between shadow-2xl">
-            {/* Scrollable Conversation History */}
-            <div className="flex-1 overflow-y-auto h-[420px] max-h-[420px] space-y-4 pr-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
-              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-1.5 mb-2 border-b border-white/5 pb-2">
-                <Zap size={12} className="animate-pulse" />
-                এআই চ্যাট থ্রেড (Conversational Memory Active)
-              </span>
+          <div className="bg-slate-900/90 rounded-[2.5rem] border border-white/10 shadow-2xl overflow-hidden flex flex-col h-[580px] max-w-4xl mx-auto">
+            {/* Messenger Style Header */}
+            <div className="bg-gradient-to-r from-indigo-900/90 via-slate-900 to-indigo-950 p-4 sm:p-5 border-b border-white/10 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-0.5 shadow-md flex items-center justify-center text-white">
+                    <Bot size={22} />
+                  </div>
+                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-slate-900 rounded-full" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                    টাইমমেট এআই কো-পাইলট
+                    <Sparkles size={14} className="text-amber-400 fill-amber-400" />
+                  </h3>
+                  <p className="text-[10px] font-bold text-indigo-200/80 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    অনলাইন • মেসেঞ্জার চ্যাটবট মোড
+                  </p>
+                </div>
+              </div>
 
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl text-gray-300 hover:text-white transition-all text-xs font-bold flex items-center gap-1 cursor-pointer border border-white/5"
+                  title="চ্যাট হিস্ট্রি রিসেট"
+                >
+                  <RotateCcw size={13} />
+                  <span className="hidden sm:inline text-[10px] uppercase font-black">রিসেট</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-indigo-300 hover:text-white transition-all cursor-pointer border border-white/5"
+                  title="জেমিনি কি সেটিংস"
+                >
+                  <Settings size={15} />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Conversation History (Messenger Thread) */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-950/70 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
               {chatHistory.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`flex ${msg.sender === "admin" ? "justify-end" : "justify-start"} items-start gap-2`}
+                  className={`flex ${msg.sender === "admin" ? "justify-end" : "justify-start"} items-start gap-2.5`}
                 >
                   {msg.sender === "ai" && (
-                    <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-300 shrink-0 mt-1 shadow-md">
                       <Bot size={16} />
                     </div>
                   )}
                   <div
-                    className={`max-w-[85%] p-4 rounded-2xl text-xs font-semibold leading-relaxed whitespace-pre-wrap shadow-lg border ${
+                    className={`max-w-[80%] sm:max-w-[75%] px-4 py-3 rounded-2xl text-xs font-medium leading-relaxed whitespace-pre-wrap shadow-md ${
                       msg.sender === "admin"
-                        ? "bg-indigo-650/40 border-indigo-500/30 text-white rounded-tr-none ml-10"
-                        : "bg-white/5 border-white/5 text-indigo-100 rounded-tl-none mr-10"
+                        ? "bg-indigo-600 text-white rounded-tr-xs"
+                        : "bg-slate-800/90 border border-white/10 text-gray-100 rounded-tl-xs"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-4 mb-1.5 opacity-50 text-[8px] font-black uppercase">
-                      <span>{msg.sender === "admin" ? "অ্যাডমিন (You)" : "টাইমমেট এআই সহকারী"}</span>
+                    <div className="flex items-center justify-between gap-4 mb-1 opacity-60 text-[8px] font-black uppercase tracking-wider">
+                      <span>{msg.sender === "admin" ? "অ্যাডমিন (আপনি)" : "টাইমমেট এআই"}</span>
                       <span>{msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                     </div>
                     {msg.text}
                   </div>
                   {msg.sender === "admin" && (
-                    <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0 mt-1 shadow-md">
                       <User size={16} />
                     </div>
                   )}
@@ -1063,17 +1101,17 @@ Rules:
               ))}
 
               {isLoading && (
-                <div className="flex justify-start items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 animate-pulse">
+                <div className="flex justify-start items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-300 shrink-0 animate-pulse">
                     <Bot size={16} className="animate-spin-slow" />
                   </div>
-                  <div className="bg-white/5 border border-white/5 p-4 rounded-2xl rounded-tl-none text-xs font-bold text-indigo-300 flex items-center gap-2">
+                  <div className="bg-slate-800/90 border border-white/10 px-4 py-3 rounded-2xl rounded-tl-xs text-xs font-semibold text-indigo-200 flex items-center gap-2 shadow-md">
                     <span className="flex gap-1">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                     </span>
-                    এআই প্রম্পট ও অ্যাকশন বিশ্লেষণ করছে...
+                    টাইমমেট এআই মেসেজ প্রসেস করছে...
                   </div>
                 </div>
               )}
@@ -1081,7 +1119,7 @@ Rules:
               <div ref={chatEndRef} />
             </div>
 
-            {/* Optimized Input Form */}
+            {/* Messenger Footer Input */}
             <AICopilotChatForm
               onSubmit={handleCommandSubmit}
               isAiModeOn={isAiModeOn}

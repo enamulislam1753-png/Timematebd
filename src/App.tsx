@@ -1773,10 +1773,21 @@ export default function App() {
     isMysteryBoxEnabled: boolean;
     isBirthdayGiftEnabled: boolean;
     birthdayGiftPoints: number;
-  }>({
-    isMysteryBoxEnabled: true,
-    isBirthdayGiftEnabled: true,
-    birthdayGiftPoints: 500,
+  }>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_rewards");
+      return cached ? JSON.parse(cached) : {
+        isMysteryBoxEnabled: true,
+        isBirthdayGiftEnabled: true,
+        birthdayGiftPoints: 500,
+      };
+    } catch {
+      return {
+        isMysteryBoxEnabled: true,
+        isBirthdayGiftEnabled: true,
+        birthdayGiftPoints: 500,
+      };
+    }
   });
   const [paymentSettings, setPaymentSettings] = useState<{
     bKash: string;
@@ -2687,7 +2698,14 @@ export default function App() {
       };
     });
   }, [orders]);
-  const [coupons, setCoupons] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_coupons");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Auto apply coupon if saved in order details when payment modal loads
   useEffect(() => {
@@ -2739,17 +2757,51 @@ export default function App() {
     coupons.length
   ]);
 
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isOpening, setIsOpening] = useState(true);
-  const [loadingPercent, setLoadingPercent] = useState(0);
-  const [loadingStatusText, setLoadingStatusText] = useState("📡 সংযোগ স্থাপন করা হচ্ছে...");
+  const isAppInstalledOnce = useMemo(() => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        return localStorage.getItem("tm_cache_installed_once") === "true" ||
+               !!localStorage.getItem("tm_cache_services") ||
+               !!localStorage.getItem("tm_cache_user") ||
+               !!localStorage.getItem("tm_cache_profile");
+      }
+    } catch {}
+    return false;
+  }, []);
+
+  const [notifications, setNotifications] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem("tm_cache_notifications");
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => !isAppInstalledOnce);
+  const [isOpening, setIsOpening] = useState(() => !isAppInstalledOnce);
+  const [loadingPercent, setLoadingPercent] = useState(() => isAppInstalledOnce ? 100 : 0);
+  const [loadingStatusText, setLoadingStatusText] = useState("⚡ টাইমমেট লোকাল ক্যাশ সংযোগ...");
   const [reviewsLimit, setReviewsLimit] = useState(12);
   const [usersLimit, setUsersLimit] = useState(20);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
 
+  // Mark app installed on mount and cache default data immediately
+  useEffect(() => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("tm_cache_installed_once", "true");
+      }
+    } catch {}
+  }, []);
+
   // Ultra-fast Opening Animation duration & custom loading percentage generator
   useEffect(() => {
+    if (isAppInstalledOnce) {
+      setLoadingPercent(100);
+      setIsOpening(false);
+      setLoading(false);
+      return;
+    }
     let current = 0;
     const interval = setInterval(() => {
       current = Math.min(100, current + 25);
@@ -2763,22 +2815,20 @@ export default function App() {
         setLoadingStatusText("🎉 স্বাগতম! টাইমমেটে আপনার প্রবেশ নিশ্চিত...");
         clearInterval(interval);
       }
-    }, 20);
+    }, 15);
 
     return () => {
       clearInterval(interval);
     };
-  }, []);
+  }, [isAppInstalledOnce]);
 
   // Sync the opening screen dismiss and auth check instantly
   useEffect(() => {
-    if (!loading || loadingPercent === 100 || user) {
-      const waitTimer = setTimeout(() => {
-        setIsOpening(false);
-      }, 50);
-      return () => clearTimeout(waitTimer);
+    if (isAppInstalledOnce || !loading || loadingPercent === 100 || user) {
+      setIsOpening(false);
+      setLoading(false);
     }
-  }, [loadingPercent, loading, user]);
+  }, [loadingPercent, loading, user, isAppInstalledOnce]);
 
   // Form states
   const [serviceCouponCodeInput, setServiceCouponCodeInput] = useState("");
@@ -4389,7 +4439,12 @@ export default function App() {
       doc(db, "system", "rewards"),
       (docSnap) => {
         if (docSnap.exists()) {
-          setRewardsConfig(docSnap.data() as any);
+          const data = docSnap.data();
+          setRewardsConfig(data as any);
+          try {
+            localStorage.setItem("tm_cache_rewards", JSON.stringify(data));
+            localStorage.setItem("tm_cache_installed_once", "true");
+          } catch {}
         }
       },
       (err) => {
@@ -4763,6 +4818,10 @@ export default function App() {
           initialNotificationsLoaded = true;
         }
         setNotifications(n);
+        try {
+          localStorage.setItem("tm_cache_notifications", JSON.stringify(n));
+          localStorage.setItem("tm_cache_installed_once", "true");
+        } catch {}
       },
       (err) => handleFirestoreError(err, "LIST", "notifications"),
     );
@@ -4773,6 +4832,10 @@ export default function App() {
         const c: any[] = [];
         snapshot.forEach((doc) => c.push({ id: doc.id, ...doc.data() }));
         setCoupons(c);
+        try {
+          localStorage.setItem("tm_cache_coupons", JSON.stringify(c));
+          localStorage.setItem("tm_cache_installed_once", "true");
+        } catch {}
       },
       (err) => handleFirestoreError(err, "LIST", "coupons"),
     );
@@ -6299,7 +6362,77 @@ export default function App() {
     }
   };
 
+  // Digitally optimize customer support chat overlay: Auto-minimize chat when user navigates to other options
+  useEffect(() => {
+    setIsSupportWidgetOpen(false);
+    setIsSupportMenuOpen(false);
+  }, [activeSection, adminTab]);
+
+  const requestAgentConnect = async (customMessage?: string) => {
+    let currentId = user?.uid || guestSession?.uid;
+    let name = user?.displayName || guestSession?.name || "কাস্টমার";
+    let phone = profile?.phone || guestSession?.phone || "N/A";
+    let email = user?.email || "guest@timemate.bd";
+    let isGuest = !user;
+
+    if (!currentId) return;
+
+    try {
+      const userText = customMessage || "👨‍💼 আমি একজন অনলাইন সাপোর্ট প্রতিনিধি/এডমিনের সাথে সরাসরি কথা বলতে চাই।";
+
+      await addDoc(collection(db, "support_rooms", currentId, "messages"), {
+        senderId: currentId,
+        senderName: name,
+        senderRole: "customer",
+        text: userText,
+        timestamp: new Date().toISOString()
+      });
+
+      await setDoc(doc(db, "support_rooms", currentId), {
+        id: currentId,
+        customerUid: currentId,
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
+        isGuest: isGuest,
+        lastMessage: userText,
+        lastMessageTime: new Date().toISOString(),
+        unreadCount: increment(1),
+        isAgentRequested: true,
+        status: "agent_requested"
+      }, { merge: true });
+
+      // Add system notice message confirming AI reply stop
+      await addDoc(collection(db, "support_rooms", currentId, "messages"), {
+        senderId: "system",
+        senderName: "সিস্টেম নোটিশ",
+        senderRole: "system",
+        text: "✅ এআই অটো-রিপ্লাই বন্ধ করা হয়েছে। আপনার চ্যাটটি সরাসরি অ্যাডমিন প্যানেলে সংযুক্ত করা হয়েছে। একজন এডমিন শীঘ্রই চ্যাটে উত্তর দেবেন।",
+        timestamp: new Date().toISOString()
+      });
+
+      addToast("অ্যাডমিনের কাছে কানেক্ট রিকুয়েস্ট পাঠানো হয়েছে! এআই বন্ধ করা হলো। 👨‍💼", "success");
+    } catch (err) {
+      console.error("Error requesting agent connect:", err);
+      addToast("এডমিন কানেক্ট রিকুয়েস্ট পাঠানো যায়নি।", "error");
+    }
+  };
+
   const triggerAiSupportAutoReply = async (roomId: string, userText: string) => {
+    // Check if room has agent requested or is connected to human admin
+    try {
+      const roomSnap = await getDoc(doc(db, "support_rooms", roomId));
+      if (roomSnap.exists()) {
+        const roomData = roomSnap.data();
+        if (roomData.isAgentRequested || roomData.status === "agent_requested" || roomData.status === "active_admin" || roomData.status === "active") {
+          console.log("AI Auto-reply suppressed: Room is connected to human agent / admin.");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not check room status before AI reply", e);
+    }
+
     setIsAiSupportTyping(true);
     try {
       const history = customerSupportMessages.slice(-6).map((m: any) => ({
@@ -6378,6 +6511,15 @@ ${orderDetails || "No orders found for this customer."}`;
     let isGuest = !user;
     
     if (!currentId) return;
+
+    // Check if message is requesting human agent/admin
+    const textLower = text.toLowerCase();
+    const isAgentKeyword = textLower.includes("এজেন্ট") || textLower.includes("agent") || textLower.includes("এডমিন") || textLower.includes("admin") || textLower.includes("প্রতিনিধি") || textLower.includes("কথা বলতে চাই") || textLower.includes("মানুষ");
+
+    if (isAgentKeyword) {
+      await requestAgentConnect(text);
+      return;
+    }
     
     try {
       await addDoc(collection(db, "support_rooms", currentId, "messages"), {
@@ -21711,15 +21853,20 @@ ${orderDetails || "No orders found for this customer."}`;
                       💡 দ্রুত প্রশ্ন করার জন্য নিচের যেকোনো একটিতে চাপুন:
                     </span>
                     {[
-                      { label: "🕒 সার্ভিসসমূহ", text: "টাইমমেট কি কি সার্ভিস দেয়?" },
-                      { label: "🛒 অর্ডার করার নিয়ম", text: "কিভাবে সার্ভিস নিবো?" },
-                      { label: "💳 পেমেন্ট পদ্ধতি", text: "কিভাবে পেমেন্ট করবো?" }
+                      { label: "👨‍💼 এডমিন কানেক্ট", action: () => requestAgentConnect("👨‍💼 আমি এডমিন বা অনলাইন সাপোর্ট প্রতিনিধির সাথে সরাসরি চ্যাট করতে চাই।") },
+                      { label: "🕒 সার্ভিসসমূহ", action: () => sendCustomerSupportMessage("টাইমমেট কি কি সার্ভিস দেয়?") },
+                      { label: "🛒 অর্ডার করার নিয়ম", action: () => sendCustomerSupportMessage("কিভাবে সার্ভিস নিবো?") },
+                      { label: "💳 পেমেন্ট পদ্ধতি", action: () => sendCustomerSupportMessage("কিভাবে পেমেন্ট করবো?") }
                     ].map((q, idx) => (
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => sendCustomerSupportMessage(q.text)}
-                        className="px-2 py-1 bg-white dark:bg-slate-900 hover:bg-indigo-50 hover:dark:bg-indigo-950/30 border border-gray-150 dark:border-white/10 text-[9px] font-bold rounded-md text-gray-750 dark:text-gray-200 transition-all cursor-pointer shadow-2xs hover:text-indigo-600"
+                        onClick={q.action}
+                        className={`px-2 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer shadow-2xs ${
+                          idx === 0
+                            ? "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white"
+                            : "bg-white dark:bg-slate-900 hover:bg-indigo-50 hover:dark:bg-indigo-950/30 border border-gray-150 dark:border-white/10 text-gray-750 dark:text-gray-200 hover:text-indigo-600"
+                        }`}
                       >
                         {q.label}
                       </button>
