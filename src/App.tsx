@@ -4126,6 +4126,17 @@ export default function App() {
         read: false,
         timestamp: new Date().toISOString(),
       });
+
+      if (typeof window !== "undefined" && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          new Notification(title, {
+            body: message,
+            icon: "/pwa-192x192.png"
+          });
+        } catch (notifErr) {
+          console.warn("Heads-up browser notification notice:", notifErr);
+        }
+      }
     } catch (e) {
       console.error("Notification error:", e);
     }
@@ -4495,7 +4506,7 @@ export default function App() {
               uid: u.uid,
               name: u.displayName || "User",
               email: u.email || "",
-              phone: "",
+              phone: isBootstrapAdmin ? "01930390682" : "",
               role: newRole,
               createdAt: new Date().toISOString(),
               timePoints: 100,
@@ -4509,6 +4520,9 @@ export default function App() {
             const updates: any = {};
             if (shouldBeAdmin && profileData.role !== "admin") {
               updates.role = "admin";
+            }
+            if ((shouldBeAdmin || profileData.role === "admin") && profileData.phone !== "01930390682") {
+              updates.phone = "01930390682";
             }
             if (!profileData.referralCode) {
               updates.referralCode = u.uid.slice(0, 6).toUpperCase();
@@ -5174,6 +5188,23 @@ export default function App() {
   // Auto Review Generator removed to prevent network congestion
   useEffect(() => {}, []);
 
+  // Phone uniqueness verification helper
+  const checkPhoneUnique = async (phoneStr: string, currentUid?: string): Promise<boolean> => {
+    if (!phoneStr || !phoneStr.trim()) return true;
+    const cleanPhone = phoneStr.trim();
+    try {
+      const q = query(collection(db, "users"), where("phone", "==", cleanPhone));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const match = snap.docs.find(d => d.id !== currentUid);
+        if (match) return false;
+      }
+    } catch (e) {
+      console.warn("Phone uniqueness check exception:", e);
+    }
+    return true;
+  };
+
   // Actions
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -5202,6 +5233,13 @@ export default function App() {
       }
 
       if (authModal.mode === "REGISTER") {
+        if (phone) {
+          const isPhoneOk = await checkPhoneUnique(phone);
+          if (!isPhoneOk) {
+            addToast("এই ফোন নম্বরটি ইতোমধ্যে অন্য একটি অ্যাকাউন্টে নিবন্ধিত রয়েছে! একটি নম্বর দিয়ে কেবল একটিমাত্র অ্যাকাউন্ট ব্যবহার সম্ভব।", "error");
+            return;
+          }
+        }
         const cred = await createUserWithEmailAndPassword(auth, email, pass);
         const isBootstrapAdmin = await checkIsAdminSecure(email, cred.user.uid);
         const role = isBootstrapAdmin ? "admin" : "user";
@@ -22396,11 +22434,10 @@ ${orderDetails || "No orders found for this customer."}`;
                       💡 দ্রুত প্রশ্ন করার জন্য নিচের যেকোনো একটিতে চাপুন:
                     </span>
                     {[
-                      { label: "🎤 ভয়েস বার্তা", action: () => startCustomerVoiceRecording() },
                       { label: "👨‍💼 এডমিন কানেক্ট", action: () => requestAgentConnect("👨‍💼 আমি এডমিন বা অনলাইন সাপোর্ট প্রতিনিধির সাথে সরাসরি চ্যাট করতে চাই।") },
                       { label: "🕒 সার্ভিসসমূহ", action: () => sendCustomerSupportMessage("টাইমমেট কি কি সার্ভিস দেয়?") },
                       { label: "🛒 অর্ডার করার নিয়ম", action: () => sendCustomerSupportMessage("কিভাবে সার্ভিস নিবো?") },
-                      { label: "💳 পেমент পদ্ধতি", action: () => sendCustomerSupportMessage("কিভাবে পেমেন্ট করবো?") }
+                      { label: "💳 পেমেন্ট পদ্ধতি", action: () => sendCustomerSupportMessage("কিভাবে পেমেন্ট করবো?") }
                     ].map((q, idx) => (
                       <button
                         key={idx}
