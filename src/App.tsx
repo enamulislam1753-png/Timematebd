@@ -6718,7 +6718,9 @@ ${orderDetails || "No orders found for this customer."}`;
         body: JSON.stringify({
           message: userText,
           history: history,
-          context: profileContext
+          context: profileContext,
+          isCustomerSupport: true,
+          mode: "customer"
         })
       });
 

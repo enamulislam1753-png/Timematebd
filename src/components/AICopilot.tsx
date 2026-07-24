@@ -746,7 +746,9 @@ Rules:
           body: JSON.stringify({
             message: userPrompt,
             history: historyParam,
-            context: contextStr
+            context: contextStr,
+            isCustomerSupport: false,
+            mode: "admin"
           })
         });
 
@@ -790,7 +792,9 @@ Rules:
           body: JSON.stringify({
             message: userPrompt,
             history: historyParam,
-            context: contextStr
+            context: contextStr,
+            isCustomerSupport: false,
+            mode: "admin"
           })
         });
 

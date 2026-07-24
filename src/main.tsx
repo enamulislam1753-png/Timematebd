@@ -118,3 +118,14 @@ createRoot(document.getElementById('root')!).render(
   </ErrorBoundary>,
 );
 
+// Register PWA Service Worker for super fast 0ms loads on low bandwidth / 2G networks
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      console.log('TimeMate BD Fast PWA Service Worker registered successfully:', registration.scope);
+    }).catch((err) => {
+      console.warn('PWA Service Worker registration skipped:', err);
+    });
+  });
+}
+
