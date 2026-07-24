@@ -337,97 +337,43 @@ app.use(express.json());
             await fetch(url);
             console.log(`[SMS Gateway Success] Dispatched SMS OTP to: ${target}`);
           } catch (smsErr: any) {
-            console.warn("[SMS Gateway integration notice]:", smsErr?.message || smsErr);
+            console.error("[SMS Gateway Error]:", smsErr);
           }
         }
 
-        // Secure Response: NEVER return the code to the client browser in production/live, satisfying Play Store guidelines!
-        return res.json({ 
-          success: true, 
-          message: "Phone SMS real-time code dispatched successfully. Checks terminal logs on server if in secure sandbox mode.",
-          isSandbox: !smsApiKey && !smsToken
-        });
+        return res.json({ success: true, message: "OTP dispatched successfully" });
       }
     } catch (err: any) {
-      console.warn("[OTP Engine Dispatch Notice]:", err?.message || err);
-      res.status(500).json({ error: err.message || "Failed to process OTP request." });
+      console.error("SMS OTP dispatch error:", err);
+      return res.status(500).json({ error: err.message || "Failed to send OTP" });
     }
   });
 
-  // REST API: API to verify SMS or Email OTP
-  app.post("/api/verify-otp", (req, res) => {
-    try {
-      const { target, code } = req.body;
-      if (!target || !code) {
-        return res.status(400).json({ error: "Missing verification target/code." });
-      }
-
-      const activeRecord = otpStore.get(target);
-      if (!activeRecord) {
-        return res.status(400).json({ error: "ওটিপি রেকর্ড খুঁজে পাওয়া যায়নি বা এটি বাতিল হয়েছে। দয়া করে আবার ওটিপি পাঠান।" });
-      }
-
-      if (Date.now() > activeRecord.expiresAt) {
-        otpStore.delete(target);
-        return res.status(400).json({ error: "ওটিপি বা ভেরিফিকেশন কোডের মেয়াদ শেষ হয়ে গেছে। দয়া করে নতুন ওটিপি পাঠান।" });
-      }
-
-      if (activeRecord.code !== code.trim()) {
-        return res.status(400).json({ error: "ভুল ভেরিফিকেশন কোড! দয়া করে সঠিক কোড দিন।" });
-      }
-
-      otpStore.delete(target);
-      res.json({ success: true, message: "OTP Verification Completed Successfully!" });
-    } catch (err: any) {
-      console.warn("[OTP Verification Endpoint Notice]:", err?.message || err);
-      res.status(500).json({ error: err.message || "Failed to verify OTP." });
-    }
-  });
-
-  // REST API: Advanced Conversational AI Chat Endpoint with Google Search Grounding
-  // Supports all languages, coding languages, science, math, and system context injection
+  // REST API: Endpoint for Gemini AI Copilot & Customer Chatbot
   app.post("/api/ai-chat", async (req, res) => {
     try {
-      const { message, history, context } = req.body;
+      const { message, history, context, isCustomerSupport, mode } = req.body;
       if (!message || typeof message !== "string") {
-        return res.status(400).json({ error: "message is required and must be a string." });
+        return res.status(400).json({ error: "message is required and must be a string" });
       }
 
-      const client = getGeminiClient();
-      
-      // Construct conversational contents with history
-      const contents: any[] = [];
-      if (history && Array.isArray(history)) {
-        history.forEach((h: any) => {
-          if (h.role && h.text) {
-            contents.push({
-              role: h.role === "user" ? "user" : "model",
-              parts: [{ text: h.text }]
-            });
-          }
-        });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "GEMINI_API_KEY is missing on server" });
       }
-      
-      // Add the latest message
-      contents.push({
-        role: "user",
-        parts: [{ text: message }]
-      });
 
-      // Customized System Instruction enforcing strict Customer Support domain lock & sales focus
-      const systemInstruction = `You are the official "TimeMate BD Customer AI Assistant" (টাইমমেট বিডি কাস্টমার সাপোর্টিং এআই) for TimeMate BD.
+      const client = new GoogleGenAI({ apiKey });
+      const isCustomer = isCustomerSupport === true || mode === "customer";
+
+      // 1. Restricted Customer Support System Instruction (strictly locked to 4 business domains)
+      const customerSystemInstruction = `You are the official "TimeMate BD Customer AI Assistant" (টাইমমেট বিডি কাস্টমার সাপোর্টিং এআই) for TimeMate BD.
 
 CRITICAL DOMAIN LOCK & GUARDRAIL MANDATE (কঠোর বাউন্ডারি নিয়ম):
 You are strictly restricted ONLY to the following customer operational domains:
 1. Service Orders (সার্ভিস অর্ডার, ট্র্যাকিং, নতুন কাজের রিকুয়েস্ট)
 2. Payments & Pricing (পেমেন্ট পদ্ধতি, সার্ভিস চার্জ, রিচার্জ, বিকাশ/নগদ)
 3. Discounts & Offers (ডিসকাউন্ট অফার, স্পেশাল প্রমোশন)
-4. Coupons & Rewards (কুপন কোড, ক্যাশব্যাক ও রিওয়ার্ডস)
-
-STRICT OVERRIDE RULE FOR OFF-TOPIC QUERIES:
-If the customer asks questions outside these 4 allowed business domains (such as writing general code, science, history, academic problems, general chat, or non-TimeMate topics):
-You MUST politely override the topic and IMMEDIATELY steer the user back to TimeMate BD's services, promotions, and discounts.
-Example Bengali response: "আমি টাইমমেট বিডির সার্ভিস অর্ডার, পেমেন্ট, ডিসকাউন্ট এবং কুপন সংক্রান্ত বিষয়ে আপনাকে সাহায্য করতে নিয়োজিত। টাইমমেট বিডির আকর্ষণীয় অফার বা সার্ভিস বুকিং করতে আমাকে জানান!"
+4. Coupons & Rewards (কুপন কোড, ক্যাশব্যাক অফার)
 
 About TimeMate BD Services:
 - Groceries Shopping (বাজার ও গ্রোসারি): Quick and customized local market shopping.
@@ -445,9 +391,45 @@ Guidelines:
 2. If the customer asks about their order status or payment history, refer directly to the "Context about the current user & system" above to provide accurate real-time information.
 3. Keep all responses strictly sales-focused, helpful, and aligned with TimeMate BD services.`;
 
-      console.log(`[AI Chat API] Initiating request to gemini-3.5-flash...`);
+      // 2. Full Unrestricted Admin AI Copilot System Instruction (all capabilities, coding, math, science, database intelligence & Google Search)
+      const adminSystemInstruction = `You are the official "TimeMate BD AI Copilot" (টাইমমেট বিডি এআই কো-পাইলট) for TimeMate BD, the leading premium on-demand personal assistant and professional concierge service provider in Bangladesh.
 
-      let response;
+About TimeMate BD Services:
+- Groceries Shopping (বাজার ও গ্রোসারি): Quick and customized local market shopping.
+- Standing in Queue / Waiting Support (লাইনে দাঁড়ানো / ওয়েটিং সাপোর্ট): Waiting at passport offices, banks, clinics, or ticket counters.
+- Banking Support (ব্যাংকিং কাজ): Document delivery, cheque deposit, or query assistance.
+- Utility Bill Payments (ইউটিলিটি বিল পরিশোধ): Smooth electricity, gas, water, or internet bill clearance.
+- Doctor Appointment Bookings (ডাক্তার অ্যাপয়েন্টমেন্ট): Reserving and assisting clinic schedules.
+- VIP Golden Express Courier (ভিআইপি গোল্ডেন এক্সপ্রেস কুরিয়ার): High-security, ultra-fast customized dispatch within and outside Dhaka.
+
+Context about the current user & system:
+${context || "No active order or user details available."}
+
+Guidelines:
+1. Answer the user's questions clearly, politely, and professionally.
+2. You are fully multilingual and support all languages. Always respond in the language used by the user (primarily Bengali/Bangla or English).
+3. You have comprehensive expert knowledge in all programming/coding languages (like Python, TypeScript, JavaScript, Rust, C++, etc.), scientific domains (Physics, Chemistry, Biology, Advanced Mathematics), humanities, history, and general knowledge.
+4. If a user asks about order status, tracking, account details, or system statistics (like orders count, pending orders, income/revenue, user lists, etc.), you must read and refer to the "Context about the current user & system" above to perform real-time counts/calculations and provide accurate, live information directly on your own! Do NOT use pre-baked or static answers.
+5. Feel free to explain code, solve scientific equations, write stories, or perform any cognitive task. Keep answers highly interactive, helpful, and structured.
+6. If the user's question is about general knowledge, current events, real-time weather, news, or anything not present in the local database/context or your pre-trained model knowledge, you MUST search Google (using the googleSearch tool) to retrieve the answers directly from the web and present them cleanly with references!
+7. Avoid saying "as an AI assistant" or giving generic canned templates. Act as an extremely capable, intelligent, and real-time operational assistant. Always reply in the user's language (Bengali/Bangla or English).`;
+
+      const systemInstruction = isCustomer ? customerSystemInstruction : adminSystemInstruction;
+
+const contents: any[] = [];
+      if (Array.isArray(history)) {
+        for (const item of history) {
+          if (item && item.role && item.text) {
+            contents.push({
+              role: item.role === "user" ? "user" : "model",
+              parts: [{ text: item.text }]
+            });
+          }
+        }
+      }
+      contents.push({ role: "user", parts: [{ text: message }] });
+
+      let response: any;
       let usedGrounding = false;
       try {
         console.log(`[AI Chat API] Attempting generateContent with Google Search grounding...`);

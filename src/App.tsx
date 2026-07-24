@@ -6821,7 +6821,7 @@ ${orderDetails || "No orders found for this customer."}`;
     }
     setIsCustomerRecording(false);
     setCustomerRecordingTime(0);
-    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "info");
+    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "success");
   };
 
   const startAdminVoiceRecording = async () => {
@@ -6893,7 +6893,7 @@ ${orderDetails || "No orders found for this customer."}`;
     }
     setIsAdminRecording(false);
     setAdminRecordingTime(0);
-    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "info");
+    addToast("ভয়েস বার্তা বাতিল করা হয়েছে।", "success");
   };
 
   const handleCustomerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
