@@ -6754,29 +6754,56 @@ ${orderDetails || "No orders found for this customer."}`;
   };
 
   // Voice Note Helper Functions
+  const getSupportedMimeType = (): string => {
+    if (typeof MediaRecorder === "undefined") return "audio/webm";
+    const types = [
+      "audio/webm;codecs=opus",
+      "audio/mp4",
+      "audio/aac",
+      "audio/webm",
+      "audio/ogg",
+      "audio/wav"
+    ];
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "";
+  };
+
   const startCustomerVoiceRecording = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        addToast("আপনার ডিভাইস বা অ্যাপে মাইক্রোফোন সাপোর্ট নেই!", "error");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mimeType = getSupportedMimeType();
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
       customerMediaRecorderRef.current = mediaRecorder;
       customerAudioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           customerAudioChunksRef.current.push(e.data);
         }
       };
 
-      mediaRecorder.start();
+      // Pass timeslice 250ms for frequent chunk gathering on mobile WebViews
+      mediaRecorder.start(250);
       setIsCustomerRecording(true);
       setCustomerRecordingTime(0);
 
       customerRecordTimerRef.current = setInterval(() => {
         setCustomerRecordingTime((prev) => prev + 1);
       }, 1000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Microphone access error for customer voice chat:", err);
-      addToast("মাইক্রোফোন পারমিশন পাওয়া যায়নি!", "error");
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        addToast("মাইক্রোফোন পারমিশন এনাবল করুন (অ্যাপ বা ব্রাউজার সেটিংস)", "error");
+      } else {
+        addToast("মাইক্রোফোন সংযোগ পাওয়া যায়নি!", "error");
+      }
     }
   };
 
@@ -6784,21 +6811,33 @@ ${orderDetails || "No orders found for this customer."}`;
     if (!customerMediaRecorderRef.current) return;
 
     const recorder = customerMediaRecorderRef.current;
-    if (recorder.state !== "inactive") {
-      recorder.onstop = () => {
-        const audioBlob = new Blob(customerAudioChunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64Audio = reader.result as string;
-          sendCustomerSupportMessage("", base64Audio, customerRecordingTime);
-        };
+    const finalRecTime = customerRecordingTime;
 
-        if (recorder.stream) {
-          recorder.stream.getTracks().forEach((track) => track.stop());
-        }
+    const processAudioAndSend = () => {
+      const mimeType = recorder.mimeType || getSupportedMimeType() || "audio/webm";
+      const audioBlob = new Blob(customerAudioChunksRef.current, { type: mimeType });
+      if (audioBlob.size === 0) {
+        addToast("ভয়েস রেকর্ড তৈরি করা সম্ভব হয়নি, আবার চেষ্টা করুন", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      reader.onloadend = () => {
+        const base64Audio = reader.result as string;
+        sendCustomerSupportMessage("", base64Audio, finalRecTime || 1);
+        addToast("ভয়েস বার্তা সফলভাবে পাঠানো হয়েছে!", "success");
       };
+
+      if (recorder.stream) {
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+
+    if (recorder.state !== "inactive") {
+      recorder.onstop = processAudioAndSend;
       recorder.stop();
+    } else {
+      processAudioAndSend();
     }
 
     if (customerRecordTimerRef.current) {
@@ -6828,27 +6867,37 @@ ${orderDetails || "No orders found for this customer."}`;
 
   const startAdminVoiceRecording = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        addToast("আপনার ডিভাইস বা অ্যাপে মাইক্রোফোন সাপোর্ট নেই!", "error");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mimeType = getSupportedMimeType();
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
       adminMediaRecorderRef.current = mediaRecorder;
       adminAudioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
           adminAudioChunksRef.current.push(e.data);
         }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(250);
       setIsAdminRecording(true);
       setAdminRecordingTime(0);
 
       adminRecordTimerRef.current = setInterval(() => {
         setAdminRecordingTime((prev) => prev + 1);
       }, 1000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Microphone access error for admin voice chat:", err);
-      addToast("মাইক্রোফোন পারমিশন পাওয়া যায়নি!", "error");
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        addToast("মাইক্রোফোন পারমিশন এনাবল করুন (অ্যাপ বা ব্রাউজার সেটিংস)", "error");
+      } else {
+        addToast("মাইক্রোফোন সংযোগ পাওয়া যায়নি!", "error");
+      }
     }
   };
 
@@ -6856,21 +6905,33 @@ ${orderDetails || "No orders found for this customer."}`;
     if (!adminMediaRecorderRef.current) return;
 
     const recorder = adminMediaRecorderRef.current;
-    if (recorder.state !== "inactive") {
-      recorder.onstop = () => {
-        const audioBlob = new Blob(adminAudioChunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64Audio = reader.result as string;
-          sendRepresentativeReply("", base64Audio, adminRecordingTime);
-        };
+    const finalRecTime = adminRecordingTime;
 
-        if (recorder.stream) {
-          recorder.stream.getTracks().forEach((track) => track.stop());
-        }
+    const processAudioAndSend = () => {
+      const mimeType = recorder.mimeType || getSupportedMimeType() || "audio/webm";
+      const audioBlob = new Blob(adminAudioChunksRef.current, { type: mimeType });
+      if (audioBlob.size === 0) {
+        addToast("ভয়েস রেকর্ড তৈরি করা সম্ভব হয়নি, আবার চেষ্টা করুন", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      reader.onloadend = () => {
+        const base64Audio = reader.result as string;
+        sendRepresentativeReply("", base64Audio, finalRecTime || 1);
+        addToast("ভয়েস বার্তা সফলভাবে পাঠানো হয়েছে!", "success");
       };
+
+      if (recorder.stream) {
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+
+    if (recorder.state !== "inactive") {
+      recorder.onstop = processAudioAndSend;
       recorder.stop();
+    } else {
+      processAudioAndSend();
     }
 
     if (adminRecordTimerRef.current) {
@@ -22183,36 +22244,11 @@ ${orderDetails || "No orders found for this customer."}`;
                 </div>
                 <div>
                   <p className="text-xs font-bold text-gray-900 dark:text-white">লাইভ চ্যাট সাপোর্ট</p>
-                  <p className="text-[9px] text-gray-450 dark:text-gray-400 font-bold mt-0.5">সরাসরি প্রতিনিধির সাথে মেসেজ</p>
+                  <p className="text-[9px] text-gray-450 dark:text-gray-400 font-bold mt-0.5">সরাসরি প্রতিনিধির সাথে চ্যাট</p>
                 </div>
               </button>
 
-              {/* Option 2: Voice Chat & Voice Note Recording */}
-              <button
-                onClick={() => {
-                  setIsSupportWidgetOpen(true);
-                  setIsSupportMenuOpen(false);
-                  if (user?.uid || guestSession?.uid) {
-                    setTimeout(() => {
-                      startCustomerVoiceRecording();
-                    }, 300);
-                  }
-                }}
-                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-red-50/70 dark:bg-red-500/10 hover:bg-red-100/90 dark:hover:bg-red-550/20 text-left transition-all cursor-pointer border border-red-200/50 dark:border-red-800/30 group"
-              >
-                <div className="w-8.5 h-8.5 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                  <Mic size={16} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1">
-                    <span>ভয়েস চ্যাট ও ভয়েস বার্তা</span>
-                    <span className="px-1.5 py-0.2 bg-red-600 text-white text-[8px] font-black rounded-full uppercase">NEW</span>
-                  </p>
-                  <p className="text-[9px] text-gray-500 dark:text-gray-400 font-bold mt-0.5">ভয়েস বার্তা রেকর্ড করে পাঠান</p>
-                </div>
-              </button>
-
-              {/* Option 3: Facebook Messenger */}
+              {/* Option 2: Facebook Messenger */}
               <a
                 href="https://www.facebook.com/profile.php?id=61575319627556"
                 target="_blank"

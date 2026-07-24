@@ -16,7 +16,9 @@ import {
   RotateCcw,
   User,
   Bot,
-  Settings
+  Settings,
+  Copy,
+  Check
 } from "lucide-react";
 import { collection, doc, updateDoc, getDocs, query, where, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -100,9 +102,23 @@ export const AICopilot: React.FC<AICopilotProps> = ({
   
   // Custom API key settings state
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [userApiKey, setUserApiKey] = useState<string>(() => {
     return localStorage.getItem("user_gemini_api_key") || "";
   });
+
+  const handleCopyMessage = (text: string, id: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedMsgId(id);
+      addToast("মেসেজ কপি করা হয়েছে!", "success");
+      setTimeout(() => {
+        setCopiedMsgId(null);
+      }, 2000);
+    } catch (e) {
+      addToast("কপি করতে সমস্যা হয়েছে!", "error");
+    }
+  };
   
   // Conversational Chat History state
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
@@ -1090,9 +1106,29 @@ Rules:
                         : "bg-slate-800/90 border border-white/10 text-gray-100 rounded-tl-xs"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-4 mb-1 opacity-60 text-[8px] font-black uppercase tracking-wider">
+                    <div className="flex items-center justify-between gap-3 mb-1 opacity-80 text-[8px] font-black uppercase tracking-wider">
                       <span>{msg.sender === "admin" ? "অ্যাডমিন (আপনি)" : "টাইমমেট এআই"}</span>
-                      <span>{msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMessage(msg.text, msg.id)}
+                          className="hover:text-white transition-all cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/25 text-[8px] font-bold text-gray-200"
+                          title="মেসেজ কপি করুন"
+                        >
+                          {copiedMsgId === msg.id ? (
+                            <>
+                              <Check size={10} className="text-emerald-400" />
+                              <span className="text-emerald-400">কপি হয়েছে</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={10} />
+                              <span>কপি</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     {msg.text}
                   </div>
